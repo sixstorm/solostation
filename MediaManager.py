@@ -8,6 +8,7 @@ import moviepy.editor as mp
 import subprocess as sp
 import json
 import logging
+import time
 from rich.console import Console
 from rich.logging import RichHandler
 
@@ -51,10 +52,12 @@ def connect_tvdb_api():
     """
 
     global tvdb, tvdb_connected
-    log.debug("Connecting to TVDB")
-    apikey = "21857f0d-16b5-4d5e-8505-f46281ceabdd"
-    tvdb = tvdb_v4_official.TVDB(apikey)
-    tvdb_connected = True
+
+    if not tvdb_connected:
+        log.debug("Connecting to TVDB")
+        apikey = "21857f0d-16b5-4d5e-8505-f46281ceabdd"
+        tvdb = tvdb_v4_official.TVDB(apikey)
+        tvdb_connected = True
 
 def get_runtime(file):
     """
@@ -71,6 +74,8 @@ def get_runtime(file):
     Example:
         get_runtime("movie.mp4")
     """
+
+    log.debug(f"Getting runtime for {file}")
 
     # Get runtime of episode in MM:SS
     file_data = mp.VideoFileClip(file)
@@ -163,6 +168,13 @@ def download_movie_metadata(movie_name, movie_year, movie_json, movie_extended_j
         movie_year (_type_): _description_
     """
 
+    global tvdb, tvdb_connected
+
+    if not tvdb_connected:
+        connect_tvdb_api()
+
+    log.debug(f"Downloading movie metadata for {movie_name}")
+
     try:
         # Seach TVDB for movie metadata
         movie_metadata = [
@@ -172,7 +184,7 @@ def download_movie_metadata(movie_name, movie_year, movie_json, movie_extended_j
         ][0]
 
         # Get extended data and genres for tags
-        movie_extended_data = tvdb.get_movie_extended(movie_data["tvdb_id"])
+        movie_extended_data = tvdb.get_movie_extended(movie_metadata["tvdb_id"])
 
         # Save metadata and extended metadata to local json files
         with open(movie_json, "w") as file:
@@ -446,7 +458,7 @@ def process_tv():
         all_episode_files = glob.glob(
             f"{show_root_folder}/*/*.mp4", recursive=True
         ) + glob.glob(f"{show_root_folder}/*/*.mkv", recursive=True)
-        log.debug(f"Found {len(all_episode_files)} for {show_name}")
+        log.debug(f"Found {len(all_episode_files)} episodes for {show_name}")
 
         # Check for episode and extended data local json files
         log.debug(f"Checking for {show_name} local data")
@@ -472,22 +484,26 @@ def process_tv():
                 if episode_number.startswith("0"):
                     episode_number = episode_number.lstrip("0")
 
+                # log.debug([e for e in episode_local_data["episodes"] if e["seasonNumber"] == 1][0])
+
                 # Find episode metadata in local json file
                 try:
+                    log.debug(f"Searching local files for season {season_number} episode {episode_number}")
                     episode_metadata = [
                         e 
-                        for e in episode_local_data 
+                        for e in episode_local_data["episodes"] 
                         if e["seasonNumber"] == int(season_number)
                         and e["number"] == int(episode_number)
                     ][0]
-                except IndexError:
-                    continue
+                except Exception as e:
+                    log.debug(f"Episode Metadata Error: {e}")
 
                 if episode_metadata:
                     # Append tags from the show's genres
                     tags = ["tv"]
                     for tag in series_local_data["genres"]:
                         tags.append(tag["name"].lower())
+                    tags = str(",".join(tags))
 
                     # Get runtime for episode
                     runtime = get_runtime(episode)
@@ -511,7 +527,8 @@ def process_tv():
                     episode_id = cursor.lastrowid
                     all_chapters = get_chapters(episode)
                     if all_chapters:
-                        for chapter in all_chapters:
+                        for chapter in all_chapters["chapters"]:
+                            log.debug(f"{chapter=}")
                             # Insert chapter into database
                             cursor.execute(
                                 "INSERT INTO CHAPTERS (EpisodeID, Title, Start, End) VALUES (?, ?, ?, ?)",
@@ -541,24 +558,29 @@ def process_movies():
     # Go through each movie folder
     for movie_folder in next(os.walk(movie_root))[1]:
         # Search for either a MP4 and MKV movie file with the movie root folder
-        movie_root_folder = f"{movie_root}/{movie_folder}"
+        movie_root_folder = f"{movie_root}{movie_folder}"
+        log.debug(f"{movie_folder=}")
         try:
-            file = (glob.glob(f"{movie_root_folder}/*.mp4", recursive=True) + glob.glob(f"{movie_root_folder}/*.mkv", recursive=True))[0]
+            movie_file = (glob.glob(f"{movie_root_folder}/*.mp4") + glob.glob(f"{movie_root_folder}/*.mkv"))[0]
         except IndexError:
             continue
 
         # Check and insert movie metadata into the database if it doesn't exist
-        if not check_if_in_table("MOVIE", file):
+        if not check_if_in_table("MOVIE", movie_file):
             # Parse movie name and year from filename
-            movie_name_org = file.split("/")[5]
-            movie_name = re.search(".+?(?=\s\()", movie_name_org)[0]
-            movie_year = re.search("\(([0-9]{4})\)", movie_name_org)[1]
-            movie_name_no_spaces = movie_name_org.replace(" ", "")
+            movie_name = re.search(".+?(?=\s\()", movie_folder)[0]
+            movie_year = re.search("\(([0-9]{4})\)", movie_folder)[1]
+            movie_name_no_spaces = movie_name.replace(" ", "")
             movie_json = f"{movie_root_folder}/{movie_name_no_spaces}.json"
             movie_extended_json = f"{movie_root_folder}/{movie_name_no_spaces}-extended.json"
+            log.debug(f"{movie_name=}")
+            log.debug(f"{movie_year=}")
+            log.debug(f"{movie_name_no_spaces=}")
+            log.debug(f"{movie_json=}")
+            log.debug(f"{movie_extended_json=}")
 
             # Download movie metadata json file if not available
-            if not os.path.exists(movie_json):
+            if not os.path.exists(movie_json) or not os.path.exists(movie_extended_json):
                 download_movie_metadata(movie_name, movie_year, movie_json, movie_extended_json)
 
             # Open local json files
@@ -570,18 +592,21 @@ def process_movies():
 
             tags = ["movie"]
             for tag in movie_extended_metadata["genres"]:
-                tags.append(tag["name"].tolower())
+                tags.append(tag["name"].lower())
 
             # Insert movie into database
             tags = str(",".join(tags))
-            runtime = get_runtime(file)
+            log.debug(f"{movie_file=}")
+            runtime = get_runtime(movie_file)
             cursor.execute(
-                "INSERT INTO MOVIE (Name, Year, Overview, Tags, Runtime, Filepath) VALUES (?, ?, ?, ?, ?, ?)", (movie_metadata['name'], movie_metadata['year'], movie_metadata['overview'], tags, runtime, file)
+                "INSERT INTO MOVIE (Name, Year, Overview, Tags, Runtime, Filepath) VALUES (?, ?, ?, ?, ?, ?)", (movie_metadata['name'], movie_metadata['year'], movie_metadata['overview'], tags, runtime, movie_file)
             )
             conn.commit()
+
 
 initialize_all_tables()
 process_commercials()
 process_web()
 process_music()
 process_movies()
+process_tv()
