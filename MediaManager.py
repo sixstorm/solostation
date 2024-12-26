@@ -181,7 +181,7 @@ def download_movie_metadata(movie_name, movie_year, movie_json, movie_extended_j
             json.dump(movie_extended_data, file, indent=4)
     except Exception as e:
         log.debug(f"Error downloading movie metadata: {e}")
-        continue
+        
 
 def check_if_in_table(table, filepath):
     """
@@ -324,6 +324,9 @@ def process_music():
         None
     """
 
+    log.debug("")
+    log.debug("Searching and processing music videos and idents")
+
     for file in glob.glob("/media/ascott/USB/music/*.mp4"):
         if not check_if_in_table("MUSIC", file):
             # Get artist and title from filename
@@ -368,6 +371,9 @@ def process_commercials():
         None
     """
 
+    log.debug("")
+    log.debug("Searching and processing commercials")
+
     for file in glob.glob("/media/ascott/USB/bumpers/*/*.mp4"):
         if not check_if_in_table("COMMERCIALS", file):
             # Get runtime
@@ -398,6 +404,9 @@ def process_web():
         None
     """
 
+    log.debug("")
+    log.debug("Searching and processing web content")
+
     for file in glob.glob("/media/ascott/USB/web/*.mp4"):
         if not check_if_in_table("WEB", file):
             # Get runtime
@@ -421,6 +430,7 @@ def process_tv():
         None
     """
 
+    log.debug("")
     log.debug("Searching and processing TV episodes")
 
     # Go through each TV show folder
@@ -525,6 +535,7 @@ def process_movies():
         None
     """
 
+    log.debug("")
     log.debug("Searching and processing movies")
 
     # Go through each movie folder
