@@ -779,6 +779,6 @@ def create_schedule():
                                 
 
 
-clear_schedule_table()
-initialize_schedule_db()
-create_schedule()
+# clear_schedule_table()
+# initialize_schedule_db()
+# create_schedule()

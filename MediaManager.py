@@ -604,9 +604,9 @@ def process_movies():
             conn.commit()
 
 
-initialize_all_tables()
-process_commercials()
-process_web()
-process_music()
-process_movies()
-process_tv()
+# initialize_all_tables()
+# process_commercials()
+# process_web()
+# process_music()
+# process_movies()
+# process_tv()
