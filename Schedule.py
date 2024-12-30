@@ -85,7 +85,7 @@ def clear_old_schedule_items():
     cursor.execute(query)
     conn.commit()
 
-def check_schedule_for_rebuild():
+def check_schedule_for_rebuild(channel_number):
     """
     Checks for items scheduled for today in the Schedule table
     Builds schedule if not available
@@ -102,19 +102,28 @@ def check_schedule_for_rebuild():
         check_schedule_for_rebuild()
     """
 
-    for channel_number in [2, 3, 4, 5, 6]:
-        # Query Database for all items scheduled for this channel
-        today_date = datetime.strftime(datetime.now(), "%Y-%m-%d")
-        cursor.execute(
-            f"""SELECT * FROM SCHEDULE WHERE Channel = {channel_number} AND Showtime LIKE '%{today_date}%'"""
-        )
-        results = cursor.fetchall()
-        if results:
-            log.debug(f"Schedule already exists for {today_date}")
-            return True
-        else:
-            log.debug(f"Schedule does not exists for {today_date}")
-            return False
+    cursor.execute(f"SELECT * FROM SCHEDULE WHERE Channel = '{channel_number}'")
+    results = cursor.fetchall()
+    if len(results) == 0:
+        log.debug("Rebuild - YUP")
+        return True
+    else:
+        log.debug("Rebuild - NOPE")
+        return False
+
+    # for channel_number in [2, 3, 4, 5, 6]:
+    #     # Query Database for all items scheduled for this channel
+    #     today_date = datetime.strftime(datetime.now(), "%Y-%m-%d")
+    #     cursor.execute(
+    #         f"""SELECT * FROM SCHEDULE WHERE Channel = {channel_number} AND Showtime LIKE '%{today_date}%'"""
+    #     )
+    #     results = cursor.fetchall()
+    #     if results:
+    #         log.debug(f"Schedule already exists for {today_date}")
+    #         return True
+    #     else:
+    #         log.debug(f"Schedule does not exists for {today_date}")
+    #         return False
 
 def insert_into_schedule(channel_number, showtime, end, filepath, chapter, runtime):
     """
@@ -665,6 +674,8 @@ def create_schedule():
 
     global marker
 
+    log.debug("Building a new schedule")
+
     # Get today's date
     day_name = datetime.today().strftime("%A")
     log.info(f"Today is {day_name}")
@@ -675,6 +686,12 @@ def create_schedule():
         channel_name = channel_metadata
         channel_schedule = channel_data[channel_name]["schedule"][day_name]
         channel_number = channel_data[channel_name]["channel_number"]
+
+        if channel_number != 2:
+            log.debug("Channel not 2")
+            continue
+
+
         log.info("")
         log.info(f"Working on {channel_name} - {channel_number}")
 
@@ -768,9 +785,12 @@ def create_schedule():
                 marker = post_marker
 
                 # Add final commercial break after all chapters have been scheduled
-                next_showtime = list(channel_schedule.items())[slot_index + 1][0]
-                log.debug(f"Adding final commercial break until next showtime: {next_showtime}")
-                add_post_movie(channel_number, next_showtime)
+                try:
+                    next_showtime = list(channel_schedule.items())[slot_index + 1][0]
+                    log.debug(f"Adding final commercial break until next showtime: {next_showtime}")
+                    add_post_movie(channel_number, next_showtime)
+                except Exception as e:
+                    continue
 
                 # Update stats
 
