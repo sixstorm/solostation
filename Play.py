@@ -118,6 +118,24 @@ def get_chapter_start(filepath, chapter_number):
 
     return chapter_start
 
+def get_chapter_start_time(filepath, chapter_number):
+    # Get episode ID
+    query = f"SELECT ID FROM TV WHERE Filepath = '{filepath}'"
+    cursor.execute(query)
+    result = cursor.fetchone()
+    episode_id = result[0]
+    log.info(f"{episode_id=}")
+
+    # Get time after start of current chapter from the database
+    query = f"SELECT Start FROM CHAPTERS WHERE ID = {episode_id} ORDER BY Start"  # AND Chapter = {chapter_number}"
+    cursor.execute(query)
+    # result = cursor.fetchone()
+    results = cursor.fetchall()
+    log.debug(results)
+    chapter_start = result[chapter_number - 1]
+
+    return chapter_start
+
 def monitor_playback(schedule):
     while True:
         try:
@@ -135,10 +153,10 @@ def monitor_playback(schedule):
                 log.debug(f"Schedule says {playing_now['filepath']}")
                 if item["chapter"] is not None:
                     log.debug(f"Chapter {item['chapter']} detected")
-                    elapsed_time = get_chapter_start(item["filepath"], item["chapter"])
                     player.playlist_next()
-                    player.wait_for_property('seekable')
-                    player.seek(elapsed_time, reference="absolute")
+                    chapter_index = (int(item['chapter']) - 1)
+                    player.chapter = chapter_index
+                    player.wait_for_property("chapter")
                 else:
                     player.playlist_next()
 
@@ -180,16 +198,37 @@ def load_channel(channel_number):
             # If this is the first item in the playlist, start playing
             if player.playlist_count == 1:
                 # Start playing at proper time if episode has chapters
-                if item["chapter"] is not None:
-                    log.debug(f"Chapter {item['chapter']} detected")
-                    elapsed_time = get_chapter_start(item["filepath"], item["chapter"])
-                else:
+                log.debug(item["chapter"])
+                if item["chapter"] is None:
                     log.debug(f"Should be playing {item['filepath']} at {item['showtime']} until {item['end']}")
                     elapsed_time = (now - item["showtime"]).total_seconds()
+                    player.play(item["filepath"])
+                    log.debug("Waiting for seekable property to be available")
+                    player.wait_for_property('seekable')
+                    log.debug(f"Seeking to {elapsed_time}")
+                    player.seek(elapsed_time, reference="absolute")
+                else:
+                    log.debug(f"Chapter {item['chapter']} detected")
+                    player.play(item["filepath"])
+                    chapter_index = (int(item['chapter']) - 1)
+                    player.chapter = chapter_index
+                    player.wait_for_property("chapter")
+                    elapsed_time = (now - item["showtime"]).total_seconds()
+                    log.debug(f"Seeking to {elapsed_time}")
+                    player.seek((now - item["showtime"]).total_seconds(), reference="absolute")
+
+                    # # Get time into episode depending on chapter number
+                    # # Subtract now - item["showtime"] - i.e. 2:05
+                    # time_into_chapter = (now - item["showtime"]).total_seconds()
+                    # log.debug(f"{time_into_chapter=}")
+                    # # Chapter start time + results above - i.e. 7:30 + 2:05 = 9:35 into episode
+                    # chapter_hour, chapter_minute, chapter_second = map(int, get_chapter_start_time(item["filepath"], item["chapter"]).split(":"))
+                    # chapter_TD = timedelta(hours=chapter_hour, minutes=chapter_minute, seconds=chapter_second).total_seconds()
+                    # elapsed_time = chapter_TD + time_into_chapter
+                    # log.debug(f"{elapsed_time=}")
+                    # time.sleep(5)
+
                 
-                player.play(item["filepath"])
-                player.wait_for_property('seekable')
-                player.seek(elapsed_time, reference="absolute")
         else:
             player.playlist_append(item["filepath"])
 
@@ -204,7 +243,7 @@ def load_channel(channel_number):
     monitor_thread.start()
 
 
-Schedule.clear_schedule_table()
+# Schedule.clear_schedule_table()
 if Schedule.check_schedule_for_rebuild(2):
     Schedule.clear_schedule_table()
     Schedule.create_schedule()
