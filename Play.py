@@ -23,7 +23,7 @@ logging.basicConfig(
 # logging.setLevel(logging.INFO)
 log = logging.getLogger("rich")
 
-# MPV
+# MPV Player Creation and Properties
 player = mpv.MPV(
     ytdl=True, 
     input_default_bindings=True, 
@@ -42,9 +42,25 @@ cursor = conn.cursor()
 
 # Functions
 def import_schedule(channel_number):
+    '''
+    Queries the schedule in the database for all items with given channel number.
+    All results are converted to a dictionary and returned in a list.
+
+    Args:
+        channel_number (int) - Channel number
+
+    Returns:  
+        all_scheduled_items (list of dictionaries) - Each scheduled item
+        
+    Raises:
+    Example:
+    '''
+
+    # Query schedule in database for given channel number 
     now = datetime.strftime(datetime.now(), "%Y-%m-%d %HH:%MM:%SS")
     cursor.execute(f"SELECT * FROM SCHEDULE WHERE Channel = '{channel_number}' ORDER BY Showtime ASC")
-    # cursor.execute(f"SELECT * FROM SCHEDULE WHERE Channel = '{channel_number}' AND Showtime >= '{now}' ORDER BY Showtime ASC")
+
+    # Convert query results to a list of dictionaries
     all_scheduled_items = [{
             "channel": row[1],
             "showtime": datetime.strptime(str(row[2]), "%Y-%m-%d %H:%M:%S"),
@@ -57,6 +73,19 @@ def import_schedule(channel_number):
     return all_scheduled_items
 
 def get_playing_now(channel_number):
+    '''
+    Queries the schedule in the database for what is currently playing
+
+    Args:
+        channel_number (int) - Channel number
+
+    Returns:  
+        s_object (dict) - Single scheduled item
+        
+    Raises:
+    Example:
+    '''
+
     # Get what's playing now
     query = """
         SELECT * FROM SCHEDULE
@@ -69,7 +98,7 @@ def get_playing_now(channel_number):
 
     # Convert to a custom object and return it
     ID, channel, showtime, end, filepath, chapter, runtime = results
-    sObject = {
+    s_object = {
         "channel": channel,
         "showtime": showtime,
         "end": end,
@@ -77,9 +106,21 @@ def get_playing_now(channel_number):
         "chapter": chapter,
         "runtime": runtime
     }
-    return sObject
+    return s_object
 
 def get_playing_next(channel_number):
+    '''
+    Queries the schedule in the database for what is playing next
+
+    Args:
+        channel_number (int) - Channel number
+
+    Returns:  
+        s_object (dict) - Single scheduled item
+        
+    Raises:
+    Example:
+    '''
     # Get what's playing next
     query = """
         SELECT * FROM SCHEDULE
@@ -92,7 +133,7 @@ def get_playing_next(channel_number):
 
     # Convert to a custom object and return it
     ID, channel, showtime, end, filepath, chapter, runtime = results
-    sObject = {
+    s_object = {
         "channel": channel,
         "showtime": showtime,
         "end": end,
@@ -100,9 +141,24 @@ def get_playing_next(channel_number):
         "chapter": chapter,
         "runtime": runtime
     }
-    return sObject
+    return s_object
 
 def get_chapter_start(filepath, chapter_number):
+    '''
+    Queries the schedule in the database for the start time of what is currently
+    playing
+
+    Args:
+        filepath (str) - Filepath of episode
+        channel_number (int) - Channel number
+
+    Returns:  
+        chapter_start (str) - Start time of chapter
+        
+    Raises:
+    Example:
+    '''
+
     # Get episode ID
     query = f"SELECT ID FROM TV WHERE Filepath = '{filepath}'"
     cursor.execute(query)
@@ -119,6 +175,21 @@ def get_chapter_start(filepath, chapter_number):
     return chapter_start
 
 def get_chapter_start_time(filepath, chapter_number):
+    '''
+    Queries the schedule in the database for the start time of what is currently
+    playing
+
+    Args:
+        filepath (str) - Filepath of episode
+        channel_number (int) - Channel number
+
+    Returns:  
+        chapter_start (str) - Start time of chapter
+        
+    Raises:
+    Example:
+    '''
+
     # Get episode ID
     query = f"SELECT ID FROM TV WHERE Filepath = '{filepath}'"
     cursor.execute(query)
@@ -137,6 +208,20 @@ def get_chapter_start_time(filepath, chapter_number):
     return chapter_start
 
 def monitor_playback(schedule):
+    '''
+    Threaded function that monitors what is playing.
+    If it's time to move forward, then send a command to go to 
+    next item in the playlist.
+
+    Args:
+        schedule (list) - Current schedule
+
+    Returns:  
+        None
+        
+    Raises:
+    Example:
+    '''
     while True:
         try:
             now = datetime.now()
@@ -165,6 +250,18 @@ def monitor_playback(schedule):
         time.sleep(0.1)
 
 def load_channel(channel_number):
+    '''
+    Loads the given channel (by number) media contents into a playlist for MPV to play
+
+    Args:
+        channel_number (int) - Channel number
+
+    Returns:  
+        None
+        
+    Raises:
+    Example:
+    '''
     os.system("clear")
     now = datetime.now()
 
@@ -191,45 +288,45 @@ def load_channel(channel_number):
 
     # Add remaining items in schedule to MPV playlist
     for item in remaining_schedule:
-        # If currently playing
+        # If currently playing item
         if now >= item["showtime"]:
             player.playlist_append(item["filepath"])
 
             # If this is the first item in the playlist, start playing
             if player.playlist_count == 1:
                 # Start playing at proper time if episode has chapters
-                log.debug(item["chapter"])
                 if item["chapter"] is None:
                     log.debug(f"Should be playing {item['filepath']} at {item['showtime']} until {item['end']}")
+
+                    # Get elapsed time
                     elapsed_time = (now - item["showtime"]).total_seconds()
+
+                    # Play file in MPV
                     player.play(item["filepath"])
+
+                    # Seek to the proper time once 'seekable' property is available
                     log.debug("Waiting for seekable property to be available")
                     player.wait_for_property('seekable')
                     log.debug(f"Seeking to {elapsed_time}")
                     player.seek(elapsed_time, reference="absolute")
                 else:
-                    log.debug(f"Chapter {item['chapter']} detected")
+                    log.debug(f"Should be playing chapter {item['chapter']} of {item['filepath']} at {item['showtime']} until {item['end']}")
+
+                    # Play file in MPV
                     player.play(item["filepath"])
+
+                    # Set chapter to play in MPV and wait for property to be available
                     chapter_index = (int(item['chapter']) - 1)
                     player.chapter = chapter_index
                     player.wait_for_property("chapter")
+
+                    # Get elapsed time into chapter and seek to it
                     elapsed_time = (now - item["showtime"]).total_seconds()
                     log.debug(f"Seeking to {elapsed_time}")
                     player.seek((now - item["showtime"]).total_seconds(), reference="absolute")
-
-                    # # Get time into episode depending on chapter number
-                    # # Subtract now - item["showtime"] - i.e. 2:05
-                    # time_into_chapter = (now - item["showtime"]).total_seconds()
-                    # log.debug(f"{time_into_chapter=}")
-                    # # Chapter start time + results above - i.e. 7:30 + 2:05 = 9:35 into episode
-                    # chapter_hour, chapter_minute, chapter_second = map(int, get_chapter_start_time(item["filepath"], item["chapter"]).split(":"))
-                    # chapter_TD = timedelta(hours=chapter_hour, minutes=chapter_minute, seconds=chapter_second).total_seconds()
-                    # elapsed_time = chapter_TD + time_into_chapter
-                    # log.debug(f"{elapsed_time=}")
-                    # time.sleep(5)
-
-                
+               
         else:
+            # If not the currently playing item, append to the playlist
             player.playlist_append(item["filepath"])
 
     # DEBUG
@@ -251,7 +348,8 @@ else:
     Schedule.clear_old_schedule_items()
 
 # Load Channel
-load_channel(2)
+current_channel = 2
+load_channel(current_channel)
 
 # Main Playback Loop
 while player.time_pos is not None:
