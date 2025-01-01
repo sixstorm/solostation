@@ -222,24 +222,46 @@ def monitor_playback(schedule):
     Raises:
     Example:
     '''
+
+    log.debug("Playback monitor running")
+
     while True:
         try:
             now = datetime.now()
 
             # Get what should be playing now
             playing_now = [s for s in schedule if now >= s["showtime"] and now < s["end"]][0]
-            playing_now_index = schedule.index(playing_now)
-            playing_next = schedule[playing_now_index + 1]
-            # log.debug(f"Playback Monitor: {playing_now['filepath']} until {playing_now['end']}")
-            # log.debug(f"Playback Monitor: {playing_next['filepath']} until {playing_next['end']}")
+            if not playing_now:
+                time.sleep(0.1)
+                continue
 
-            if now >= playing_now["end"]:
+            playing_now_index = schedule.index(playing_now)
+
+            try:
+                playing_next = schedule[playing_now_index + 1]
+                log.debug(f"Playback Monitor: {playing_now['filepath']} until {playing_now['end']}")
+                log.debug(f"Playback Monitor: {playing_next['filepath']} until {playing_next['end']}")
+                log.debug(f"{now >= playing_now['end']}")
+            except IndexError:
+                log.debug(f"Playback Monitor: {playing_now['filepath']} until {playing_now['end']}")
+                log.debug(f"{now >= playing_now['end']}")
+                playing_next = None
+
+            # Wait until end time has come
+            while datetime.now() < playing_now["end"]:
+                time.sleep(0.1)
+
+            # Go to next item in playlist
+            if playing_next:
                 log.debug("I need to go to the next thing!")
                 log.debug(f"Schedule says {playing_now['filepath']}")
-                if item["chapter"] is not None:
-                    log.debug(f"Chapter {item['chapter']} detected")
+                if playing_next["chapter"] is not None:
+                    log.debug(f"Chapter {playing_next['chapter']} detected")
+                    chapter_index = int(playing_next['chapter']) - 1
+
                     player.playlist_next()
-                    chapter_index = (int(item['chapter']) - 1)
+                    player.wait_for_property("path")
+
                     player.chapter = chapter_index
                     player.wait_for_property("chapter")
                 else:
@@ -247,7 +269,7 @@ def monitor_playback(schedule):
 
         except Exception as e:
             log.debug(f"Playback Monitor: {e}")
-        time.sleep(0.1)
+            time.sleep(1)
 
 def load_channel(channel_number):
     '''
@@ -318,16 +340,20 @@ def load_channel(channel_number):
                     # Set chapter to play in MPV and wait for property to be available
                     chapter_index = (int(item['chapter']) - 1)
                     player.chapter = chapter_index
+                    log.debug("Waiting for chapter property to be available")
                     player.wait_for_property("chapter")
 
                     # Get elapsed time into chapter and seek to it
                     elapsed_time = (now - item["showtime"]).total_seconds()
+                    player.wait_for_property('seekable')
                     log.debug(f"Seeking to {elapsed_time}")
                     player.seek((now - item["showtime"]).total_seconds(), reference="absolute")
                
         else:
             # If not the currently playing item, append to the playlist
             player.playlist_append(item["filepath"])
+
+    log.debug("Channel loaded")
 
     # DEBUG
     # with open("./pl_files.txt", "w") as file:
@@ -339,20 +365,34 @@ def load_channel(channel_number):
     monitor_thread.daemon = True
     monitor_thread.start()
 
+def on_path_change(schedule_list):
+    now = datetime.now()
+    playing_now = [s for s in schedule_list if now >= s["showtime"] and now < s["end"]][0]
+    log.debug(f"MPV changed to {playing_now['filepath']}")
+
+def on_chapter_change():
+    log.debug("A chapter changed in MPV")
+
 
 # Schedule.clear_schedule_table()
+# Schedule.clear_schedule_table()
 if Schedule.check_schedule_for_rebuild(2):
-    Schedule.clear_schedule_table()
     Schedule.create_schedule()
 else:
     Schedule.clear_old_schedule_items()
 
-# Load Channel
+# MPV Property Monitoring
 current_channel = 2
+schedule_list = import_schedule(current_channel)
+player.observe_property("path", on_path_change(schedule_list))
+player.observe_property("chapter", on_chapter_change())
+
+# Load Channel
 load_channel(current_channel)
 
 # Main Playback Loop
-while player.time_pos is not None:
+# while player.time_pos is not None:
+while True:
     time.sleep(1)
 
 # def load_channel(channel_number):
