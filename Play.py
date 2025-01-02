@@ -198,12 +198,11 @@ def get_chapter_start_time(filepath, chapter_number):
     log.info(f"{episode_id=}")
 
     # Get time after start of current chapter from the database
-    query = f"SELECT Start FROM CHAPTERS WHERE ID = {episode_id} ORDER BY Start"  # AND Chapter = {chapter_number}"
+    query = f"SELECT Start FROM CHAPTERS WHERE EpisodeID = {episode_id} AND Title = {chapter_number}"
     cursor.execute(query)
-    # result = cursor.fetchone()
-    results = cursor.fetchall()
-    log.debug(results)
-    chapter_start = result[chapter_number - 1]
+    chapter_start = cursor.fetchone()[0]
+    # chapter_start = cursor.fetchall()
+    log.debug(f"{chapter_start=}")
 
     return chapter_start
 
@@ -226,6 +225,8 @@ def monitor_playback(schedule):
     log.debug("Playback monitor running")
 
     while True:
+        playable = False
+
         try:
             now = datetime.now()
 
@@ -234,36 +235,44 @@ def monitor_playback(schedule):
             if not playing_now:
                 time.sleep(0.1)
                 continue
+            log.debug(f"Playing Now: {playing_now}")
 
             playing_now_index = schedule.index(playing_now)
 
+            # Get what is playing next, if possible
             try:
                 playing_next = schedule[playing_now_index + 1]
-                log.debug(f"Playback Monitor: {playing_now['filepath']} until {playing_now['end']}")
-                log.debug(f"Playback Monitor: {playing_next['filepath']} until {playing_next['end']}")
-                log.debug(f"{now >= playing_now['end']}")
+                log.debug(f"Playing Next: {playing_next}")
             except IndexError:
-                log.debug(f"Playback Monitor: {playing_now['filepath']} until {playing_now['end']}")
-                log.debug(f"{now >= playing_now['end']}")
                 playing_next = None
 
-            # Wait until end time has come
+            # Wait until playing_now end time has come
             while datetime.now() < playing_now["end"]:
                 time.sleep(0.1)
 
             # Go to next item in playlist
             if playing_next:
                 log.debug("I need to go to the next thing!")
-                log.debug(f"Schedule says {playing_now['filepath']}")
+
                 if playing_next["chapter"] is not None:
-                    log.debug(f"Chapter {playing_next['chapter']} detected")
-                    chapter_index = int(playing_next['chapter']) - 1
-
+                    # Chapters all around should start at 1, not 0.
+                    log.debug(f"Should be playing chapter {playing_next['chapter']} of {playing_next['filepath']} at {playing_next['showtime']} until {playing_next['end']}")
+                    chapter_index = int(playing_next['chapter'])
+                    log.debug(f"{chapter_index=}")
+                    
                     player.playlist_next()
-                    player.wait_for_property("path")
 
-                    player.chapter = chapter_index
-                    player.wait_for_property("chapter")
+                    while not playable:
+                        try:
+                            duration = player.duration
+                            if duration is not None:
+                                playable = True
+                        except Exception as e:
+                            log.debug(f"Error waiting on duration check: {e}")
+                            time.sleep(0.5)
+
+                    # Go to proper chapter
+                    player.start = f"#{chapter_index}"
                 else:
                     player.playlist_next()
 
@@ -286,27 +295,17 @@ def load_channel(channel_number):
     '''
     os.system("clear")
     now = datetime.now()
+    playable = False
+    chapter_ready = False
 
     # Get a list of all items playing on given channel number
     schedule_list = import_schedule(channel_number)
-
-    # DEBUG
-    # with open("./schedule_list.txt", "w") as file:
-    #     for item in schedule_list:
-    #         item_str = f"{item['filepath']} - {item['showtime']} - {item['end']}"
-    #         file.write(item_str + "\n")
 
     # Get what's playing now
     playing_now = [s for s in schedule_list if now >= s["showtime"] and now < s["end"]][0]
     playing_now_index = schedule_list.index(playing_now)
     playing_next = schedule_list[playing_now_index + 1]
     remaining_schedule = schedule_list[playing_now_index:]
-
-    # DEBUG
-    # with open("./r_schedule_list.txt", "w") as file:
-    #     for item in remaining_schedule:
-    #         item_str = f"{item['filepath']} - {item['showtime']} - {item['end']}"
-    #         file.write(item_str + "\n")
 
     # Add remaining items in schedule to MPV playlist
     for item in remaining_schedule:
@@ -316,49 +315,63 @@ def load_channel(channel_number):
 
             # If this is the first item in the playlist, start playing
             if player.playlist_count == 1:
-                # Start playing at proper time if episode has chapters
+                player.play(item["filepath"])
+
+                # Start playing at proper time
                 if item["chapter"] is None:
+                    # No chapters
                     log.debug(f"Should be playing {item['filepath']} at {item['showtime']} until {item['end']}")
+
+                    # Wait for duration property to be available to avoid MPV playback errors
+                    while not playable:
+                        try:
+                            duration = player.duration
+                            if duration is not None:
+                                playable = True
+                        except Exception as e:
+                            log.debug(f"Error waiting on chapter playback: {e}")
+                            time.sleep(0.5)
 
                     # Get elapsed time
                     elapsed_time = (now - item["showtime"]).total_seconds()
 
-                    # Play file in MPV
-                    player.play(item["filepath"])
-
                     # Seek to the proper time once 'seekable' property is available
+                    if elapsed_time > 0:
+                        log.debug("Waiting for seekable property to be available")
+                        log.debug(f"Seeking to {elapsed_time}")
+                        player.seek(elapsed_time, reference="absolute")
+                else:
+                    # With chapters
+                    log.debug(f"Should be playing chapter {item['chapter']} of {item['filepath']} at {item['showtime']} until {item['end']}")
+                    chapter_index = int(item['chapter'])
+                    log.debug(f"{chapter_index=}")
+
+                    while not playable:
+                        try:
+                            duration = player.duration
+                            if duration is not None:
+                                playable = True
+                        except Exception as e:
+                            log.debug(f"Error waiting on duration check: {e}")
+                            time.sleep(0.5)
+
+                    # Seek to proper playback position in episode
+                    # Logic:  chapter_start + (now - item["showtime"])
+                    chapter_start = get_chapter_start_time(item["filepath"], item["chapter"])
+                    time_gap = datetime.now() - item["showtime"]
+                    log.debug(f"{time_gap=}")
+                    chapter_hour, chapter_minute, chapter_second = map(int, chapter_start.split(":"))
+                    elapsed_time = time_gap + timedelta(hours=chapter_hour, minutes=chapter_minute, seconds=chapter_second)
+                    
                     log.debug("Waiting for seekable property to be available")
-                    player.wait_for_property('seekable')
                     log.debug(f"Seeking to {elapsed_time}")
                     player.seek(elapsed_time, reference="absolute")
-                else:
-                    log.debug(f"Should be playing chapter {item['chapter']} of {item['filepath']} at {item['showtime']} until {item['end']}")
-
-                    # Play file in MPV
-                    player.play(item["filepath"])
-
-                    # Set chapter to play in MPV and wait for property to be available
-                    chapter_index = (int(item['chapter']) - 1)
-                    player.chapter = chapter_index
-                    log.debug("Waiting for chapter property to be available")
-                    player.wait_for_property("chapter")
-
-                    # Get elapsed time into chapter and seek to it
-                    elapsed_time = (now - item["showtime"]).total_seconds()
-                    player.wait_for_property('seekable')
-                    log.debug(f"Seeking to {elapsed_time}")
-                    player.seek((now - item["showtime"]).total_seconds(), reference="absolute")
                
         else:
             # If not the currently playing item, append to the playlist
             player.playlist_append(item["filepath"])
 
     log.debug("Channel loaded")
-
-    # DEBUG
-    # with open("./pl_files.txt", "w") as file:
-    #     for item in player.playlist_filenames:
-    #         file.write(item + "\n")
 
     # Start playback monitoring function thread
     monitor_thread = threading.Thread(target=monitor_playback, args=(remaining_schedule,))
@@ -373,10 +386,11 @@ def on_path_change(schedule_list):
 def on_chapter_change():
     log.debug("A chapter changed in MPV")
 
+# MediaManager.initialize_all_tables()
+# MediaManager.process_tv()
 
-# Schedule.clear_schedule_table()
-# Schedule.clear_schedule_table()
 if Schedule.check_schedule_for_rebuild(2):
+    Schedule.clear_old_schedule_items()
     Schedule.create_schedule()
 else:
     Schedule.clear_old_schedule_items()

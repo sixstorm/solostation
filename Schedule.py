@@ -94,7 +94,7 @@ def check_schedule_for_rebuild(channel_number):
         None
 
     Returns:
-        None
+        (bool) - True if there are no future dates in the schedule
 
     Raises:
 
@@ -102,14 +102,19 @@ def check_schedule_for_rebuild(channel_number):
         check_schedule_for_rebuild()
     """
 
-    cursor.execute(f"SELECT * FROM SCHEDULE WHERE Channel = '{channel_number}'")
-    results = cursor.fetchall()
-    if len(results) == 0:
-        log.debug("Rebuild - YUP")
-        return True
-    else:
-        log.debug("Rebuild - NOPE")
-        return False
+    now = datetime.now()
+    cursor.execute("SELECT COUNT(*) FROM Schedule WHERE end > ?", (now,))
+    results = cursor.fetchone()[0]
+    return results == 0
+
+    # cursor.execute(f"SELECT * FROM SCHEDULE WHERE Channel = '{channel_number}'")
+    # results = cursor.fetchall()
+    # if len(results) == 0:
+    #     log.debug("Rebuild - YUP")
+    #     return True
+    # else:
+    #     log.debug("Rebuild - NOPE")
+    #     return False
 
     # for channel_number in [2, 3, 4, 5, 6]:
     #     # Query Database for all items scheduled for this channel

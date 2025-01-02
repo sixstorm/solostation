@@ -526,6 +526,7 @@ def process_tv():
 
                     episode_id = cursor.lastrowid
                     all_chapters = get_chapters(episode)
+                    chapter_number = 1
                     if all_chapters:
                         for chapter in all_chapters["chapters"]:
                             log.debug(f"{chapter=}")
@@ -534,12 +535,13 @@ def process_tv():
                                 "INSERT INTO CHAPTERS (EpisodeID, Title, Start, End) VALUES (?, ?, ?, ?)",
                                 (
                                     episode_id,
-                                    chapter["tags"]["title"],
-                                    chapter["start_time"].split(".")[0],
-                                    chapter["end_time"].split(".")[0],
+                                    chapter_number,
+                                    f"0{chapter['start_time'].split('.')[0]}",
+                                    f"0{chapter['end_time'].split('.')[0]}",
                                 ),
                             )
                             conn.commit()
+                            chapter_number += 1
 
 def process_movies():
     """
