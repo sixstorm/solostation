@@ -370,6 +370,7 @@ def load_channel(channel_number):
                     if elapsed_time > 0:
                         # log.debug("Waiting for seekable property to be available")
                         # log.debug(f"Seeking to {elapsed_time}")
+                        player.wait_for_property("seekable")
                         player.seek(elapsed_time, reference="absolute")
                 else:
                     # With chapters
@@ -421,6 +422,7 @@ def on_path_change(_name, value):
             log.debug("MPV Mismatch!")
             log.debug(f"MPV: {value}")
             log.debug(f'Schedule: {playing_now["filepath"]}')
+            log.debug("Calling to reload the channel")
             load_channel(current_channel)
         else:
             log.debug(f"MPV File Observer: {playing_now['filepath']} is on schedule")

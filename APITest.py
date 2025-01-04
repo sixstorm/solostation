@@ -1,4 +1,5 @@
 from fastapi import FastAPI, WebSocket
+from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from datetime import datetime, timedelta
 import asyncio
@@ -22,6 +23,7 @@ conn = sqlite3.connect("/media/ascott/USB/database/solodb.db")
 cursor = conn.cursor()
 
 app = FastAPI()
+app.mount("/static", StaticFiles(directory="static"), name="static")
 
 # Functions
 def import_schedule():
@@ -55,6 +57,14 @@ def import_schedule():
 
     return all_scheduled_items
 
+def get_media_metadata(filepath):
+    if "tv" in filepath:
+        cursor.execute(f"SELECT * FROM TV WHERE Filepath = '{filepath}'")
+        return cursor.fetchone()
+    if "movie" in filepath:
+        cursor.execute(f"SELECT * FROM MOVIE WHERE Filepath = '{filepath}'")
+        return cursor.fetchone()
+
 
 # Helper function to format channel data
 def get_channel_data():
@@ -77,6 +87,8 @@ def get_channel_data():
         except IndexError:
             playing_next = None
 
+        playing_now_metadata = get_media_metadata(playing_now["filepath"])
+        playing_next_metadata = get_media_metadata(playing_next["filepath"])
 
         remaining_time = (playing_now["end"] - now).total_seconds() if now < playing_now["end"] else 0
         hours, remainder = divmod(remaining_time, 3600)
@@ -84,18 +96,25 @@ def get_channel_data():
         formatted_time = f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}"
 
         if playing_now["chapter"] is not None:
-            current_title = f"{playing_now['filepath']} - Chapter {playing_now['chapter']}"
+            current_title = f"{playing_now_metadata[2]} - {playing_now_metadata[1]} - Chapter {playing_now['chapter']}"
         else:
-            current_title = f"{playing_now['filepath']}"
+            if "bumper" in playing_now["filepath"]:
+                current_title = "Commercial"
+            else:
+                current_title = f"{playing_now['filepath']}"
 
 
         if playing_next["chapter"] is not None:
-            next_title = f"{playing_next['filepath']} - Chapter {playing_next['chapter']}"
+            next_title = f"{playing_next_metadata[2]} - {playing_next_metadata[1]} - Chapter {playing_next['chapter']}"
         else:
-            next_title = f"{playing_next['filepath']}"
-
+            if "bumper" in playing_next['filepath']:
+                # next_title = playing_next['filepath'].split("/")[5]
+                next_title = "Commercial"
+            else:
+                next_title = f"{playing_next['filepath']}"
 
         data.append({
+            "current_time": str(datetime.now().time()).split(".")[0],
             "channel_number": playing_now["channel"],
             "current_title": current_title,
             "time_remaining": formatted_time,
@@ -116,9 +135,19 @@ async def get():
     <head>
         <title>Channel Dashboard</title>
         <style>
-            body { font-family: Arial, sans-serif; }
-            .channel { margin-bottom: 20px; }
+            @font-face {
+                font-family: "Geist";
+                src: url('./static/fonts/GeistMonoNerdFont-Regular.otf') format('opentype');
+            }
+            h1 { 
+                margin: auto; 
+                text-align: center;
+                font-family: "Geist", Arial, sans-serif;
+            }
+            body { font-family: "Geist", Arial, sans-serif; }
+            .channel { margin-bottom: 20px; line-height: 1.5;}
             .channel-title { font-weight: bold; }
+            .current-time { font-family: "Geist"; text-align: center; font-weight: bold; font-size: 40px; }
         </style>
     </head>
     <body>
@@ -131,7 +160,14 @@ async def get():
                 const channels = JSON.parse(event.data);
                 const container = document.getElementById("channels");
                 container.innerHTML = ""; // Clear previous content
+
                 channels.forEach(channel => {
+                    const timeDiv = document.createElement("div");
+                    timeDiv.className = "current-time";
+                    timeDiv.innerHTML = `
+                        <div>${channel.current_time}</div>
+                    `;
+                    container.appendChild(timeDiv);
                     const channelDiv = document.createElement("div");
                     channelDiv.className = "channel";
                     channelDiv.innerHTML = `
