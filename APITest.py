@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 import asyncio
 import sqlite3
 import logging
+import socket
+import json
 
 from rich.console import Console
 from rich.table import Table
@@ -61,9 +63,22 @@ def get_media_metadata(filepath):
     if "tv" in filepath:
         cursor.execute(f"SELECT * FROM TV WHERE Filepath = '{filepath}'")
         return cursor.fetchone()
-    if "movie" in filepath:
+    elif "movie" in filepath:
         cursor.execute(f"SELECT * FROM MOVIE WHERE Filepath = '{filepath}'")
         return cursor.fetchone()
+    elif "bumper" in filepath:
+        cursor.execute(f"SELECT * FROM COMMERCIALS WHERE Filepath = '{filepath}'")
+        return cursor.fetchone()
+    else:
+        return None
+
+def send_command_to_mpv(command):
+    socket_path = "/tmp/mpv_socket"
+    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as client:
+        client.connect(socket_path)
+        client.sendall(json.dumps(command).encode() + b"\n")
+        response = client.recv(1024)
+        return json.loads(response.decode())
 
 
 # Helper function to format channel data
@@ -80,15 +95,14 @@ def get_channel_data():
     for channel in channels:
         # Get now playing for this channel
         playing_now = [s for s in schedule if now >= s["showtime"] and now < s["end"] and s["channel"] == channel][0]
+        playing_now_metadata = get_media_metadata(playing_now["filepath"])
 
         try:
             playing_now_index = schedule.index(playing_now)
             playing_next = schedule[playing_now_index + 1]
+            playing_next_metadata = get_media_metadata(playing_next["filepath"])
         except IndexError:
             playing_next = None
-
-        playing_now_metadata = get_media_metadata(playing_now["filepath"])
-        playing_next_metadata = get_media_metadata(playing_next["filepath"])
 
         remaining_time = (playing_now["end"] - now).total_seconds() if now < playing_now["end"] else 0
         hours, remainder = divmod(remaining_time, 3600)
@@ -108,20 +122,41 @@ def get_channel_data():
             next_title = f"{playing_next_metadata[2]} - {playing_next_metadata[1]} - Chapter {playing_next['chapter']}"
         else:
             if "bumper" in playing_next['filepath']:
-                # next_title = playing_next['filepath'].split("/")[5]
                 next_title = "Commercial"
             else:
                 next_title = f"{playing_next['filepath']}"
 
-        data.append({
+        # IPC Test
+        command = {"command": ["get_property", "path"]}
+        path_response = send_command_to_mpv(command)
+        mpv_path = (get_media_metadata(path_response["data"]))[1]
+
+        try:
+            command = {"command": ["get_property", "chapter"]}
+            chapter_response = send_command_to_mpv(command)
+            log.debug(chapter_response)
+            mpv_chapter = int(chapter_response["data"]) + 1
+        except Exception as e:
+            log.debug(f"Chapter Call: {e}")
+
+        # if mpv_chapter:
+        #     mpv_np_metadata = f"{mpv_path} - {mpv_chapter}"
+        # else:
+        mpv_np_metadata = f"{mpv_path}"
+
+
+        input_data = {
             "current_time": str(datetime.now().time()).split(".")[0],
             "channel_number": playing_now["channel"],
             "current_title": current_title,
             "time_remaining": formatted_time,
             "next_title": next_title,
-            "next_start_at": str(playing_next["showtime"])
-        })
-    
+            "next_start_at": str(playing_next["showtime"]),
+            "mpv_current_title": mpv_np_metadata
+        }
+        data.append(input_data)
+
+    log.debug(data)
     return data
 
 schedule = import_schedule()
@@ -135,6 +170,7 @@ async def get():
     <head>
         <title>Channel Dashboard</title>
         <style>
+            background-color: #6B7A8F;
             @font-face {
                 font-family: "Geist";
                 src: url('./static/fonts/GeistMonoNerdFont-Regular.otf') format('opentype');
@@ -144,10 +180,30 @@ async def get():
                 text-align: center;
                 font-family: "Geist", Arial, sans-serif;
             }
-            body { font-family: "Geist", Arial, sans-serif; }
+            body { 
+                font-family: "Geist", Arial, sans-serif;
+                background-color: #6b7a8f;
+            }
+            .channels {
+                background-color: #F7882F;
+                font-family: "Geist", Arial, sans-serif;
+                display: flex;
+            }
             .channel { margin-bottom: 20px; line-height: 1.5;}
-            .channel-title { font-weight: bold; }
-            .current-time { font-family: "Geist"; text-align: center; font-weight: bold; font-size: 40px; }
+            .channel-title { font-family: "Geist", Arial, sans-serif; font-weight: bold; }
+            .current-time { 
+                margin-top: 50px;
+                margin-bottom: 25px;
+                font-family: "Geist"; 
+                text-align: center; 
+                font-weight: bold; 
+                font-size: 40px; 
+            }
+            .mpv-data {
+                font-family: "Geist";
+                text-align: center;
+                font-size: 35px;
+            }
         </style>
     </head>
     <body>
@@ -163,11 +219,19 @@ async def get():
 
                 channels.forEach(channel => {
                     const timeDiv = document.createElement("div");
+                    const mpvData = document.createElement("div");
                     timeDiv.className = "current-time";
+                    mpvData.className = "mpv-data";
+
                     timeDiv.innerHTML = `
                         <div>${channel.current_time}</div>
                     `;
+                    mpvData.innerHTML = `
+                        <div>${channel.mpv_current_title}</div>
+                    `;
                     container.appendChild(timeDiv);
+                    container.appendChild(mpvData);
+
                     const channelDiv = document.createElement("div");
                     channelDiv.className = "channel";
                     channelDiv.innerHTML = `
