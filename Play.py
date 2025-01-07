@@ -123,19 +123,23 @@ def get_chapter_start_time(filepath, chapter_number):
     Example:
     '''
 
+    conn2 = sqlite3.connect("/media/ascott/USB/database/solodb.db")
+    cursor2 = conn2.cursor()
+
     # Get episode ID
     query = f"SELECT ID FROM TV WHERE Filepath = '{filepath}'"
-    cursor.execute(query)
-    result = cursor.fetchone()
+    cursor2.execute(query)
+    result = cursor2.fetchone()
     episode_id = result[0]
     log.info(f"{episode_id=}")
 
     # Get time after start of current chapter from the database
     query = f"SELECT Start FROM CHAPTERS WHERE EpisodeID = {episode_id} AND Title = {chapter_number}"
-    cursor.execute(query)
-    chapter_start = cursor.fetchone()[0]
-    # chapter_start = cursor.fetchall()
+    cursor2.execute(query)
+    chapter_start = cursor2.fetchone()[0]
     log.debug(f"{chapter_start=}")
+
+    conn2.close()
 
     return chapter_start
 
@@ -434,55 +438,76 @@ def load_schedule(current_channel):
 def on_path_change(_name, value):
     global schedule, current_channel, initial_path_update_ignored
 
+    log.debug(f"MPV File Observer: Changed file: {value}")
     now = datetime.now().replace(microsecond=0)
     playing_now = [s for s in schedule if now >= s["showtime"] and now < s["end"]][0]
-    if not initial_path_update_ignored and playing_now["chapter"] is not None:
-        initial_path_update_ignored = True
-        while now < playing_now["end"]:
-            # log.debug("Waiting for chapter to end")
-            now = datetime.now().replace(microsecond=0)
-            time.sleep(0.1)
-        log.debug("Going to next item in playlist post chapter")
-        player.playlist_next()
+    log.debug(f"{initial_path_update_ignored=}")
 
-    # # Don't do anything on the first run
+    # Don't do anything on the first run unless item playing has chapters
     if not initial_path_update_ignored:
-        log.debug("Ignoring first run for path change")
-        initial_path_update_ignored = True
+        if playing_now["chapter"] is not None:
+            initial_path_update_ignored = True
+            while now < playing_now["end"]:
+                now = datetime.now().replace(microsecond=0)
+                time.sleep(0.1)
+            log.debug("MPV File Observer: Going to next item in playlist post chapter")
+            player.playlist_next()
+        else:
+            log.debug("MPV File Observer: Ignoring first run for path change")
+            initial_path_update_ignored = True
     else:
         try:
-            initial_path_update_ignored = True
-            now = datetime.now().replace(microsecond=0)
-            playing_now = [s for s in schedule if now >= s["showtime"] and now < s["end"]][0]
-            log.debug(f"MPV File Observer: Changed file: {value}")
-
-            # Handle episodes with chapters
             # If chapter, wait until end time and move forward
             if playing_now["chapter"] is not None:
                 log.debug(f"MPV File Observer: Playing chapter {playing_now['chapter']} of {playing_now['filepath']} at {playing_now['showtime']} until {playing_now['end']}")
                 chapter_start = get_chapter_start_time(playing_now["filepath"], playing_now["chapter"])
-                time_gap = datetime.now() - playing_now["showtime"]
                 chapter_hour, chapter_minute, chapter_second = map(int, chapter_start.split(":"))
+                time_gap = datetime.now() - playing_now["showtime"]
+                log.debug(f"MPV File Observer: Time Gap {time_gap}")
                 elapsed_time = (time_gap + timedelta(hours=chapter_hour, minutes=chapter_minute, seconds=chapter_second)).total_seconds()
                 player.wait_for_property("seekable")
                 player.seek(elapsed_time, reference="absolute")
 
+                log.debug(f"MPV File Observer: Playing until {playing_now['end']}")
                 while now < playing_now["end"]:
                     now = datetime.now().replace(microsecond=0)
                     time.sleep(0.1)
-                log.debug("Going to next item in playlist post chapter")
-                player.playlist_next()
+                log.debug("End of chapter!")
+
+                # Get what is playing next, if possible
+                try:
+                    playing_now_index = schedule.index(playing_now)
+                    playing_next = schedule[playing_now_index + 1]
+                    log.debug(f"Post Chapter Play Next: {playing_next}")
+                    player.playlist_next()
+                    # if playing_next["chapter"] is not None:
+                    #     log.debug("2 chapters were detected together; doing nothing")
+                    # else:
+                    #     player.playlist_next()
+                except IndexError:
+                    playing_next = None
 
             # Filler killer
-            if "Filler" in value:
+            elif "Filler" in value:
                 log.debug("Filler detected")
+                now = datetime.now().replace(microsecond=0)
+                playing_now = [s for s in schedule if now >= s["showtime"] and now < s["end"]][0]
                 while now < playing_now["end"]:
                     now = datetime.now().replace(microsecond=0)
+                    time.sleep(0.1)
                 log.debug("Killing filler!")
                 player.playlist_next()
 
+            else:
+                now = datetime.now().replace(microsecond=0)
+                playing_now = [s for s in schedule if now >= s["showtime"] and now < s["end"]][0]
+                while now < playing_now["end"]:
+                    now = datetime.now().replace(microsecond=0)
+                    time.sleep(0.1)
+
         except Exception as e:
             log.debug(f"MPV File Observer Error: {e}")
+    log.debug("End of path change function")
 
 ##############################################
 
