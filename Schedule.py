@@ -107,29 +107,6 @@ def check_schedule_for_rebuild(channel_number):
     results = cursor.fetchone()[0]
     return results == 0
 
-    # cursor.execute(f"SELECT * FROM SCHEDULE WHERE Channel = '{channel_number}'")
-    # results = cursor.fetchall()
-    # if len(results) == 0:
-    #     log.debug("Rebuild - YUP")
-    #     return True
-    # else:
-    #     log.debug("Rebuild - NOPE")
-    #     return False
-
-    # for channel_number in [2, 3, 4, 5, 6]:
-    #     # Query Database for all items scheduled for this channel
-    #     today_date = datetime.strftime(datetime.now(), "%Y-%m-%d")
-    #     cursor.execute(
-    #         f"""SELECT * FROM SCHEDULE WHERE Channel = {channel_number} AND Showtime LIKE '%{today_date}%'"""
-    #     )
-    #     results = cursor.fetchall()
-    #     if results:
-    #         log.debug(f"Schedule already exists for {today_date}")
-    #         return True
-    #     else:
-    #         log.debug(f"Schedule does not exists for {today_date}")
-    #         return False
-
 def insert_into_schedule(channel_number, showtime, end, filepath, chapter, runtime):
     """
     Inserts a single media item into the schedule table
@@ -696,7 +673,6 @@ def create_schedule():
             log.debug("Channel not 2")
             continue
 
-
         log.info("")
         log.info(f"Working on {channel_name} - {channel_number}")
 
@@ -711,12 +687,34 @@ def create_schedule():
             slot_hour, slot_minute = map(int, slot_time.split(":"))
             marker = datetime.now().replace(hour=slot_hour, minute=slot_minute, second=0, microsecond=0)
 
+            # Determine if something is already scheduled for this time slot
+            try:
+                query = f"SELECT * FROM SCHEDULE WHERE Showtime >= '{marker}'"
+                cursor.execute(query)
+                results = cursor.fetchone()[0]
+                if results:
+                    log.debug(f"Found {results} for {slot_time}")
+                    continue
+            except Exception as e:
+                log.debug(f"Could not find anything in the schedule for {slot_time}")
+
             # Search database for content based on slot tags
             random_media = random.choice(find_all_in_db_by_tag(slot_tags))
             log.debug(f"Chose {random_media['name']} for {slot_time}")
 
             # Process TV episode
             if "tv" in slot_tags:
+                # If episode is over 29 minutes and 45 seconds?
+                episode_hours, episode_minutes, episode_seconds = map(int, random_media["runtime"].split(":"))
+                episode_timedelta = timedelta(hours=episode_hours, minutes=episode_minutes, seconds=episode_seconds)
+                if episode_timedelta > timedelta(minutes=29, seconds=45):
+                    long_episode = True
+                    log.debug(f"{long_episode=}")
+                    time.sleep(5)
+                else:
+                    long_episode = False
+                log.debug(f"{long_episode=}")
+
                 chapters = get_chapters(random_media['filepath'])
                 if chapters:
                     log.debug(f"{len(chapters)} chapters detected for this episode")
@@ -776,7 +774,12 @@ def create_schedule():
                     marker = post_marker
                     
                 # Add final commercial break after all chapters have been scheduled
-                next_showtime = list(channel_schedule.items())[slot_index + 1][0]
+                if long_episode:
+                    next_showtime = list(channel_schedule.items())[slot_index + 2][0]
+                    log.debug(f"Adding final commercial break until next showtime: {next_showtime}")
+                    time.sleep(5)
+                else:
+                    next_showtime = list(channel_schedule.items())[slot_index + 1][0]
                 log.debug(f"Adding final commercial break until next showtime: {next_showtime}")
                 add_final_commercial_break(channel_number, next_showtime)
 
@@ -796,14 +799,3 @@ def create_schedule():
                     add_post_movie(channel_number, next_showtime)
                 except Exception as e:
                     continue
-
-                # Update stats
-
-
-
-                                
-
-
-# clear_schedule_table()
-# initialize_schedule_db()
-# create_schedule()

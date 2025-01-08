@@ -120,14 +120,17 @@ def get_chapter_start_time(filepath, chapter_number):
 # One loop
 # Each loop equals 1 time slot
 
+# Main loop
+# Set initial channel
 current_channel = 2
 
+# Check to see if schedule needs to be rebuilt
+Schedule.clear_schedule_table()
 if Schedule.check_schedule_for_rebuild(current_channel):
     Schedule.clear_old_schedule_items()
     Schedule.create_schedule()
 else:
     Schedule.clear_old_schedule_items()
-
 
 while True:
     channel_changed = False
@@ -166,18 +169,57 @@ while True:
             chapter_start_time = get_chapter_start_time(playing_now["filepath"], playing_now["chapter"])
             time_gap = datetime.now() - playing_now["showtime"]
             chapter_hour, chapter_minute, chapter_second = map(int, chapter_start_time.split(":"))
-            elapsed_time = time_gap + timedelta(hours=chapter_hour, minutes=chapter_minute, seconds=chapter_second)
+            elapsed_time = (time_gap + timedelta(hours=chapter_hour, minutes=chapter_minute, seconds=chapter_second)).total_seconds()
+            log.debug(f"{elapsed_time=}")
+            log.debug(f"{type(elapsed_time)}")
+        
+            if elapsed_time > 0:
+                log.debug(f"{elapsed_time=}")
+                player.wait_for_property("seekable")
+                player.seek(elapsed_time, reference="absolute")
+
+            if player.pause:
+                log.debug("Unpausing playback")
+                player.pause = False
+
+            while now < playing_now["end"]:
+                now = datetime.now().replace(microsecond=0)
+                time.sleep(0.1)
+
+        # Filler
+        # Make sure that filler stops on time
+        elif "Filler" in playing_now["filepath"]:
+            log.debug("Filler time")
+            
+            if player.pause:
+                log.debug("Unpausing playback")
+                player.pause = False
+
+            while now < playing_now["end"]:
+                now = datetime.now().replace(microsecond=0)
+                time.sleep(0.1)
+        
+        # No chapters, movies, etc
+        # Playthough until the end of the item
         else:
             elapsed_time = (now - playing_now["showtime"]).total_seconds()
 
-        if elapsed_time > 0:
-            log.debug(f"{elapsed_time=}")
-            player.wait_for_property("seekable")
-            player.seek(elapsed_time, reference="absolute")
+            if elapsed_time > 0:
+                log.debug(f"{elapsed_time=}")
+                player.wait_for_property("seekable")
+                player.seek(elapsed_time, reference="absolute")
 
-        while now < playing_now["end"]:
-            now = datetime.now().replace(microsecond=0)
-            time.sleep(0.1)
+            if player.pause:
+                log.debug("Unpausing playback")
+                player.pause = False
+
+            log.debug("Waiting for file to be completely played")
+            player.wait_for_property("eof-reached")
+            log.debug("End of file has been reached")
+
+        # while now < playing_now["end"]:
+        #     now = datetime.now().replace(microsecond=0)
+        #     time.sleep(0.1)
 
         # Playback has ended
 
