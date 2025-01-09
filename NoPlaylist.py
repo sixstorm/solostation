@@ -117,15 +117,46 @@ def get_chapter_start_time(filepath, chapter_number):
 
     return chapter_start
 
-# One loop
-# Each loop equals 1 time slot
+def show_info_card():
+    font = ImageFont.truetype("/media/ascott/USB/Kabel Black Regular.otf", 40)
+    overlay = player.create_image_overlay()
+    artistimg = Image.new("RGBA", (1000, 1500), (255, 255, 255, 0))
+    d = ImageDraw.Draw(artistimg)
+
+    try:
+        conn2 = sqlite3.connect(solo_db)
+        cursor2 = conn2.cursor()
+        log.debug(f"Finding metadata for {player.path}")
+        query = f'SELECT * FROM MUSIC WHERE Filepath = "{player.path}"'
+        cursor2.execute(query)
+        music_metadata = cursor2.fetchone()
+        conn2.close()
+
+        artist = music_metadata[2]
+        title = music_metadata[3]
+        finalText = f"{artist}\n{title}"
+
+        d.text(
+            (50, 900),
+            finalText,
+            font=font,
+            fill=(255, 255, 255, 128),
+            stroke_width=3,
+            stroke_fill="black",
+        )
+        overlay.update(artistimg)
+        time.sleep(5)
+        overlay.remove()
+    except Exception as e:
+        log.debug(f"show_info_card: {e}")
 
 # Main loop
 # Set initial channel
-current_channel = 2
+current_channel = 3
+first_time = True
 
 # Check to see if schedule needs to be rebuilt
-Schedule.clear_schedule_table()
+# Schedule.clear_schedule_table()
 if Schedule.check_schedule_for_rebuild(current_channel):
     Schedule.clear_old_schedule_items()
     Schedule.create_schedule()
@@ -213,13 +244,31 @@ while True:
                 log.debug("Unpausing playback")
                 player.pause = False
 
+            # Music video - Info cards
+            if current_channel == 3:
+                if "ident" not in player.path:
+                    if first_time == False:
+                        time.sleep(3)
+                        show_info_card()
+                    else:
+                        show_info_card()
+
+                    while True:
+                        current_time = player.time_pos
+                        duration = player.duration
+                        remaining_time = duration - current_time if current_time is not None else None
+
+                        if remaining_time is not None and remaining_time <= 10:
+                            show_info_card()
+                            break
+
             log.debug("Waiting for file to be completely played")
             player.wait_for_property("eof-reached")
             log.debug("End of file has been reached")
 
-        # while now < playing_now["end"]:
-        #     now = datetime.now().replace(microsecond=0)
-        #     time.sleep(0.1)
 
         # Playback has ended
+                    # if (int(player.time_pos) == 3) or (int(player.time_pos) == (int(player.duration) - 10) or first_time == True):
+                    #     show_info_card()
+                    #     first_time = False
 

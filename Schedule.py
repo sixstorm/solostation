@@ -594,10 +594,10 @@ def add_post_movie(channel_number, next_showtime):
     '''
     global marker
 
-    # Convert next_showtime to datetime
-    nst_hour, nst_minute = map(int, next_showtime.split(":"))
-    next_showtime = datetime.now().replace(hour=nst_hour, minute=nst_minute, second=0, microsecond=0)
-
+    if not isinstance(next_showtime, datetime):
+        # Convert next_showtime to datetime
+        nst_hour, nst_minute = map(int, next_showtime.split(":"))
+        next_showtime = datetime.now().replace(hour=nst_hour, minute=nst_minute, second=0, microsecond=0)
 
     # Determine time left between marker and next_showtime as a string
     time_remaining = (next_showtime - timedelta(seconds=60)) - marker
@@ -617,7 +617,7 @@ def add_post_movie(channel_number, next_showtime):
 
     all_media = all_commercials + all_web
     random.shuffle(all_media)
-    log.debug(f"Found {len(all_media)} items to fill post movie")
+    log.debug(f"Found {len(all_media)} items to fill post movie until {next_showtime}")
 
     for random_media in all_media:
         media_hour, media_minute, media_second = map(int, random_media[2].split(":"))
@@ -637,6 +637,111 @@ def add_post_movie(channel_number, next_showtime):
     filler = cursor.fetchall()[0]
 
     insert_into_schedule(channel_number, str(marker), str(next_showtime), filler[3], None, filler[2])
+
+def schedule_loud(channel_number, channel_start_time):
+    # Fill with non-stop music until 2AM tomorrow
+    marker = datetime.now().replace(microsecond=0)
+    channel_end_time = (marker + timedelta(days=1)).replace(hour=2, minute=0, second=0, microsecond=0)
+    log.debug(f"Loud is scheduled to run from {channel_start_time} until {channel_end_time}")
+    time.sleep(1)
+
+    all_music_videos = []
+    all_idents = find_all_in_db_by_tag("ident")
+
+    while marker < channel_end_time:
+        if len(all_music_videos) == 0:
+            all_music_videos = find_all_in_db_by_tag("music")
+            random.shuffle(all_music_videos)
+
+        final_list = []
+        video_index = 0
+        ident_index = 0
+
+        while video_index < len(all_music_videos):
+            num_videos = random.randint(4,8)
+            final_list.extend(all_music_videos[video_index:video_index + num_videos])
+            video_index += num_videos
+
+            if ident_index < len(all_idents):
+                final_list.append(all_idents[ident_index])
+                ident_index += 1
+        
+        # Append to the schedule
+        for mv in final_list:
+            hours, minutes, seconds = map(int, mv["runtime"].split(":"))
+            mv_runtime_TD = timedelta(hours=hours,minutes=minutes,seconds=seconds)
+            post_marker = marker + mv_runtime_TD
+            insert_into_schedule(channel_number, marker, post_marker, mv["filepath"], None, mv["runtime"])
+            marker = post_marker
+
+def schedule_bang(channel_number, channel_start_time):
+    global marker
+
+    # Fill with non-stop movies until 2AM tomorrow
+    marker = datetime.now().replace(hour=4, minute=0, second=0, microsecond=0)
+    channel_end_time = (marker + timedelta(days=1)).replace(hour=2, minute=0, second=0, microsecond=0)
+    log.debug(f"Bang! is scheduled to run from {channel_start_time} until {channel_end_time}")
+
+    all_action_movies = find_all_in_db_by_tag("movie")
+    all_action_movies = random.sample([m for m in all_action_movies if "action" in m["tags"]],15)
+    log.debug(f"Found {len(all_action_movies)} action movies")
+
+    for movie in all_action_movies:
+        hours, minutes, seconds = map(int, movie["runtime"].split(":"))
+        movie_runtime_TD = timedelta(hours=hours,minutes=minutes,seconds=seconds)
+        post_marker = marker + movie_runtime_TD
+
+        log.debug(f"Bang - Chose {movie['name']}")
+        insert_into_schedule(channel_number, marker, post_marker, movie["filepath"], None, movie["runtime"])
+        marker = post_marker
+
+        # Insert break
+        next_showtime = get_next_movie_playtime(marker)
+        add_post_movie(channel_number, next_showtime)
+        marker = next_showtime
+
+def schedule_motion(channel_number, channel_start_time):
+    global marker
+    
+    # Fill with non-stop movies until 2AM tomorrow
+    marker = datetime.now().replace(hour=4, minute=0, second=0, microsecond=0)
+    channel_end_time = (marker + timedelta(days=1)).replace(hour=2, minute=0, second=0, microsecond=0)
+    log.debug(f"Motion is scheduled to run from {channel_start_time} until {channel_end_time}")
+
+    all_movies = find_all_in_db_by_tag("movie")
+    all_movies = random.sample([m for m in all_movies],15)
+    log.debug(f"Found {len(all_movies)} action movies")
+
+    for movie in all_movies:
+        hours, minutes, seconds = map(int, movie["runtime"].split(":"))
+        movie_runtime_TD = timedelta(hours=hours,minutes=minutes,seconds=seconds)
+        post_marker = marker + movie_runtime_TD
+
+        log.debug(f"Motion - Chose {movie['name']}")
+        insert_into_schedule(channel_number, marker, post_marker, movie["filepath"], None, movie["runtime"])
+        marker = post_marker
+
+        # Insert break
+        next_showtime = get_next_movie_playtime(marker)
+        add_post_movie(channel_number, next_showtime)
+        marker = next_showtime
+
+def schedule_ppv1(channel_number, channel_start_time):
+    # Fill with non-stop movies until 2AM tomorrow
+    marker = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    channel_end_time = (marker + timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+
+    all_movies = find_all_in_db_by_tag("movie")
+    movie = random.choice([m for m in all_movies])
+
+    while marker < channel_end_time:
+        hours, minutes, seconds = map(int, movie["runtime"].split(":"))
+        movie_runtime_TD = timedelta(hours=hours,minutes=minutes,seconds=seconds)
+        post_marker = marker + movie_runtime_TD
+
+        log.debug(f"PPV1 - Chose {movie['name']}")
+        insert_into_schedule(channel_number, marker, post_marker, movie["filepath"], None, movie["runtime"])
+        marker = post_marker
 
 def create_schedule():
     '''
@@ -668,13 +773,31 @@ def create_schedule():
         channel_name = channel_metadata
         channel_schedule = channel_data[channel_name]["schedule"][day_name]
         channel_number = channel_data[channel_name]["channel_number"]
+        channel_start_time, tag = list(channel_schedule.items())[0]
+
+        log.info("")
+        log.info(f"Working on {channel_name} - {channel_number}")
+
+        match channel_number:
+            case 3:
+                schedule_loud(channel_number, channel_start_time)
+                continue
+            case 4:
+                schedule_motion(channel_number, channel_start_time)
+                continue
+            case 5:
+                schedule_ppv1(channel_number, channel_start_time)
+                continue
+            case 6:
+                schedule_bang(channel_number, channel_start_time)
+                continue
 
         if channel_number != 2:
             log.debug("Channel not 2")
             continue
+        else:
+            continue
 
-        log.info("")
-        log.info(f"Working on {channel_name} - {channel_number}")
 
         # Specialty Channels
 

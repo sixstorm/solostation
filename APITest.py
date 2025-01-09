@@ -70,7 +70,7 @@ def get_media_metadata(filepath):
         cursor.execute(f"SELECT * FROM COMMERCIALS WHERE Filepath = '{filepath}'")
         return cursor.fetchone()
     else:
-        return None
+        return filepath
 
 def send_command_to_mpv(command):
     socket_path = "/tmp/mpv_socket"
@@ -88,12 +88,15 @@ def get_channel_data():
 
     # Query for unique channel numbers
     cursor.execute("SELECT DISTINCT Channel FROM SCHEDULE")
-    channels = list(cursor.fetchall()[0])
+    channels = [c[0] for c in list(cursor.fetchall())]
 
     schedule = import_schedule()
+    if not schedule:
+        log.debug("Failed to get schedule")
     
     for channel in channels:
         # Get now playing for this channel
+        log.debug(f"Searching for channel {channel}")
         playing_now = [s for s in schedule if now >= s["showtime"] and now < s["end"] and s["channel"] == channel][0]
         playing_now_metadata = get_media_metadata(playing_now["filepath"])
 
@@ -134,7 +137,6 @@ def get_channel_data():
         try:
             command = {"command": ["get_property", "chapter"]}
             chapter_response = send_command_to_mpv(command)
-            log.debug(chapter_response)
             mpv_chapter = int(chapter_response["data"]) + 1
         except Exception as e:
             log.debug(f"Chapter Call: {e}")

@@ -19,7 +19,11 @@ This is designed with specific software and hardware requirements:
 
 # Current Status
 
-## Last Update:  2025-01-08
+## Last Update:  
+### 2025-01-09
+Additional channels have been added and ran through some thorough testing with scheduling; everything appears to be doing exactly as it should.  I will be letting this run throughout the next few days to verify that things are playing as scheduled.  Also, I want to do some work on the admin console (APITest.py) to have a tool that will help me validate playback.
+
+### 2025-01-08
 Playback is currently under testing, which means allowing it to run for most of the day and checking it every hour, making sure things are on schedule.  There are some bugs, but I'm working on them.  Once playback is solid, I'll add the rest of the channels back, work on the MTV info cards, and some other items to get to a "0.1" state.
 
 Media Management and Scheduling is basically done.  I'm currently re-writing my code to fit better Python practices, while simplifying some of the complicated things.  Most of my focus now is on the main script that plays the schedule, give music information cards on screen at the proper time, etc.  Finally, once all of this is set in stone, I will spend my remaining time adding more content!
