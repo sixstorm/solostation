@@ -11,6 +11,7 @@ import logging
 import time
 from rich.console import Console
 from rich.logging import RichHandler
+from dotenv import load_dotenv
 
 # Variables
 movie_root = "/media/ascott/USB/movies/"
@@ -20,6 +21,7 @@ web_root = "/media/ascott/USB/web"
 music_root = "/media/ascott/USB/music"
 mt_root = "/media/ascott/USB/bumpers/Trailers"
 tvdb_connected = False
+load_dotenv()
 
 # SQLite
 conn = sqlite3.connect("/media/ascott/USB/database/solodb.db")
@@ -55,7 +57,7 @@ def connect_tvdb_api():
 
     if not tvdb_connected:
         log.debug("Connecting to TVDB")
-        apikey = "21857f0d-16b5-4d5e-8505-f46281ceabdd"
+        apikey = os.getenv("TVDB_API_KEY")
         tvdb = tvdb_v4_official.TVDB(apikey)
         tvdb_connected = True
 

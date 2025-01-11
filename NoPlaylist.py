@@ -8,6 +8,7 @@ import os
 import mpv
 import re
 from PIL import Image, ImageDraw, ImageFont
+from dotenv import load_dotenv
 
 from rich.console import Console
 from rich.table import Table
@@ -20,6 +21,10 @@ logging.basicConfig(
     level="DEBUG", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
 )
 log = logging.getLogger("rich")
+
+# Load env file
+load_dotenv()
+# log.debug(os.getenv("TEST_STR"))
 
 # Ensure the socket path does not already exist
 socket_path = "/tmp/mpv_socket"
