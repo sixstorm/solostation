@@ -702,7 +702,7 @@ def schedule_bang(channel_number, channel_start_time):
 
 def schedule_motion(channel_number, channel_start_time):
     global marker
-    
+
     # Fill with non-stop movies until 2AM tomorrow
     marker = datetime.now().replace(hour=4, minute=0, second=0, microsecond=0)
     channel_end_time = (marker + timedelta(days=1)).replace(hour=2, minute=0, second=0, microsecond=0)
@@ -778,6 +778,7 @@ def create_schedule():
         log.info("")
         log.info(f"Working on {channel_name} - {channel_number}")
 
+        # Specialty Channels
         match channel_number:
             case 3:
                 schedule_loud(channel_number, channel_start_time)
@@ -791,15 +792,6 @@ def create_schedule():
             case 6:
                 schedule_bang(channel_number, channel_start_time)
                 continue
-
-        if channel_number != 2:
-            log.debug("Channel not 2")
-            continue
-        else:
-            continue
-
-
-        # Specialty Channels
 
         # Non-specialty Channels
         for slot_index, (slot_time, slot_tags) in enumerate(channel_schedule.items()):

@@ -33,11 +33,14 @@ player = mpv.MPV(
     input_vo_keyboard=True,
     keep_open=True,
     sub="no",
-    input_ipc_server=socket_path
+    input_ipc_server=socket_path,
+    vo="gpu",
+    # gpu_context="drm"
+    # video_sync="display_resample"
+    # opengl_swapinterval=1
+    hwdec="rpi"
 )
 
-player["vo"] = "gpu"
-player["hwdec"] = "drm-copy"
 player.fullscreen = True
 
 # Vars
@@ -152,8 +155,10 @@ def show_info_card():
 
 # Main loop
 # Set initial channel
-current_channel = 3
+current_channel = 2
 first_time = True
+
+MediaManager.process_commercials()
 
 # Check to see if schedule needs to be rebuilt
 # Schedule.clear_schedule_table()
