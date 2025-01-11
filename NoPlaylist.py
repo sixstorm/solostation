@@ -26,6 +26,7 @@ log = logging.getLogger("rich")
 load_dotenv()
 # log.debug(os.getenv("TEST_STR"))
 
+
 # Ensure the socket path does not already exist
 socket_path = "/tmp/mpv_socket"
 if os.path.exists(socket_path):

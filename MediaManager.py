@@ -23,6 +23,7 @@ mt_root = "/media/ascott/USB/bumpers/Trailers"
 tvdb_connected = False
 load_dotenv()
 
+
 # SQLite
 conn = sqlite3.connect("/media/ascott/USB/database/solodb.db")
 cursor = conn.cursor()
