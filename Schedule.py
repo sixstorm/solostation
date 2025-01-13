@@ -85,7 +85,7 @@ def clear_old_schedule_items():
     cursor.execute(query)
     conn.commit()
 
-def check_schedule_for_rebuild(channel_number):
+def check_schedule_for_rebuild():
     """
     Checks for items scheduled for today in the Schedule table
     Builds schedule if not available
@@ -101,11 +101,24 @@ def check_schedule_for_rebuild(channel_number):
     Example:
         check_schedule_for_rebuild()
     """
+    rebuild_needed = False
 
+    # Extract all channel numbers from channels file
     now = datetime.now()
-    cursor.execute("SELECT COUNT(*) FROM Schedule WHERE end > ?", (now,))
-    results = cursor.fetchone()[0]
-    return results == 0
+    for channel in channel_data:
+        channel_number = int(channel_data[channel]["channel_number"])
+
+        cursor.execute(f"SELECT COUNT(*) FROM Schedule WHERE end > '{now}' AND Channel = {channel_number}")
+        results = cursor.fetchone()[0]
+        if results == 0:
+            rebuild_needed = True
+            break
+
+    return rebuild_needed
+
+        # cursor.execute("SELECT COUNT(*) FROM Schedule WHERE end > ?", (now,))
+        # results = cursor.fetchone()[0]
+        # return results == 0
 
 def insert_into_schedule(channel_number, showtime, end, filepath, chapter, runtime):
     """
