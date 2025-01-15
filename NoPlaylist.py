@@ -24,8 +24,6 @@ log = logging.getLogger("rich")
 
 # Load env file
 load_dotenv()
-# log.debug(os.getenv("TEST_STR"))
-
 
 # Ensure the socket path does not already exist
 socket_path = "/tmp/mpv_socket"
@@ -41,16 +39,13 @@ player = mpv.MPV(
     sub="no",
     input_ipc_server=socket_path,
     vo="gpu",
-    # gpu_context="drm"
-    # video_sync="display_resample"
-    # opengl_swapinterval=1
     hwdec="rpi"
 )
 
 player.fullscreen = True
 
 # Vars
-solo_db = "/media/ascott/USB/database/solodb.db"
+solo_db = os.getenv("DB_LOCATION")
 
 # Functions
 def import_schedule(channel_number):
@@ -127,7 +122,7 @@ def get_chapter_start_time(filepath, chapter_number):
     return chapter_start
 
 def show_info_card():
-    font = ImageFont.truetype("/media/ascott/USB/Kabel Black Regular.otf", 40)
+    font = ImageFont.truetype(os.getenv("CUSTOM_FONT"), 40)
     overlay = player.create_image_overlay()
     artistimg = Image.new("RGBA", (1000, 1500), (255, 255, 255, 0))
     d = ImageDraw.Draw(artistimg)

@@ -13,19 +13,20 @@ from rich.console import Console
 from rich.logging import RichHandler
 from dotenv import load_dotenv
 
-# Variables
-movie_root = "/media/ascott/USB/movies/"
-tv_root = "/media/ascott/USB/tv/"
-comm_root = "/media/ascott/USB/bumpers"
-web_root = "/media/ascott/USB/web"
-music_root = "/media/ascott/USB/music"
-mt_root = "/media/ascott/USB/bumpers/Trailers"
-tvdb_connected = False
+# Load env file
 load_dotenv()
 
+# Variables
+movie_root = os.getenv("MOVIE_ROOT")
+tv_root = os.getenv("TV_ROOT")
+comm_root = os.getenv("COMM_ROOT")
+web_root = os.getenv("WEB_ROOT")
+music_root = os.getenv("MUSIC_ROOT")
+mt_root = os.getenv("MOVIE_TRAILER_ROOT")
+tvdb_connected = False
 
 # SQLite
-conn = sqlite3.connect("/media/ascott/USB/database/solodb.db")
+conn = sqlite3.connect(os.getenv("DB_LOCATION"))
 cursor = conn.cursor()
 
 # Rich log
@@ -342,7 +343,7 @@ def process_music():
     log.debug("")
     log.debug("Searching and processing music videos and idents")
 
-    for file in glob.glob("/media/ascott/USB/music/*.mp4"):
+    for file in glob.glob(f"{music_root}/*.mp4"):
         if not check_if_in_table("MUSIC", file):
             # Get artist and title from filename
             artist = file.split(" - ")[0]
@@ -363,7 +364,7 @@ def process_music():
             conn.commit()
 
     # Process each MTV ident
-    for file in glob.glob("/media/ascott/USB/music/idents/*.mp4"):
+    for file in glob.glob(f"{music_root}/idents/*.mp4"):
         if not check_if_in_table("MUSIC", file):
             # Get runtime
             runtime = get_runtime(file)
@@ -389,7 +390,7 @@ def process_commercials():
     log.debug("")
     log.debug("Searching and processing commercials")
 
-    for file in glob.glob("/media/ascott/USB/bumpers/*/*.mp4"):
+    for file in glob.glob(f"{comm_root}/*/*.mp4"):
         if not check_if_in_table("COMMERCIALS", file):
             # Get runtime
             runtime = get_runtime(file)
@@ -422,7 +423,7 @@ def process_web():
     log.debug("")
     log.debug("Searching and processing web content")
 
-    for file in glob.glob("/media/ascott/USB/web/*.mp4"):
+    for file in glob.glob(f"{web_root}/*.mp4"):
         if not check_if_in_table("WEB", file):
             # Get runtime
             runtime = get_runtime(file)

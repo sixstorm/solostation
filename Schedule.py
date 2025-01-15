@@ -2,11 +2,16 @@ import json
 import random
 import sqlite3
 import time
+import os
 from datetime import datetime, timedelta
 from rich.console import Console
 from rich.table import Table
 from rich.logging import RichHandler
 import logging
+from dotenv import load_dotenv
+
+# Load env file
+load_dotenv()
 
 # Rich log
 FORMAT = "%(message)s"
@@ -17,10 +22,10 @@ log = logging.getLogger("rich")
 
 # Variables
 schedule_list = []
-channel_file = "./channels.json"
+channel_file = os.getenv("CHANNEL_FILE")
 
 # Open Database
-conn = sqlite3.connect("/media/ascott/USB/database/solodb.db")
+conn = sqlite3.connect(os.getenv("DB_LOCATION"))
 cursor = conn.cursor()
 
 # Read in channel json file
@@ -65,7 +70,6 @@ def clear_schedule_table():
     """
 
     cursor.execute("DELETE FROM SCHEDULE")
-    # cursor.execute("VACUUM")
     conn.commit()
 
 def clear_old_schedule_items():
@@ -115,10 +119,6 @@ def check_schedule_for_rebuild():
             break
 
     return rebuild_needed
-
-        # cursor.execute("SELECT COUNT(*) FROM Schedule WHERE end > ?", (now,))
-        # results = cursor.fetchone()[0]
-        # return results == 0
 
 def insert_into_schedule(channel_number, showtime, end, filepath, chapter, runtime):
     """
@@ -185,7 +185,7 @@ def add_media_stats(channel_number, filepath):
         None
 
     Raises:
-    Example:  add_media_stats(4, "/media/ascott/USB/movies/The Batman (2020)/The Batman.mp4")
+    Example:  add_media_stats(4, "/*/movies/The Batman (2020)/The Batman.mp4")
     """
 
     # Check to see if filepath is in the STATS table
@@ -517,6 +517,7 @@ def add_commercial_break(channel_number, max_break):
     
     log.debug("End of commercial break")
 
+
 def add_final_commercial_break(channel_number, next_showtime):
     '''
     Adds a final commercial break after an episode has played its last chapter
@@ -838,7 +839,6 @@ def create_schedule():
                 if episode_timedelta > timedelta(minutes=29, seconds=45):
                     long_episode = True
                     log.debug(f"{long_episode=}")
-                    time.sleep(5)
                 else:
                     long_episode = False
                 log.debug(f"{long_episode=}")
