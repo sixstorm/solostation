@@ -257,7 +257,8 @@ def initialize_all_tables():
         ID INTEGER PRIMARY KEY AUTOINCREMENT,
         Tags TEXT,
         Runtime TEXT,
-        Filepath TEXT
+        Filepath TEXT,
+        LastPlayed TEXT
     );"""
 
     cursor.execute(table)

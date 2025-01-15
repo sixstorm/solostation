@@ -162,7 +162,7 @@ first_time = True
 MediaManager.process_commercials()
 
 # Check to see if schedule needs to be rebuilt
-# Schedule.clear_schedule_table()
+Schedule.clear_schedule_table()
 if Schedule.check_schedule_for_rebuild():
     Schedule.clear_old_schedule_items()
     Schedule.create_schedule()

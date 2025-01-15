@@ -447,6 +447,39 @@ def calculate_max_break_time(runtime, chapters):
     max_break_time = total_commercial_time // len(chapters)
     return max_break_time
 
+def select_commercial(max_break):
+    # Open the database and find all commercials less than or equal to the max_break input
+    conn = sqlite3.connect(os.getenv("DB_LOCATION"))
+    cursor = conn.cursor()
+    cursor.execute(f"SELECT Filepath,LastPlayed,Runtime FROM COMMERCIALS WHERE Runtime <= '{max_break}'")
+    all_commercials = cursor.fetchall()
+
+    # Create a weighted list based on LastPlayed in the COMMERCIALS table
+    weighted_list = []
+    for filepath, last_played, runtime in all_commercials:
+        if last_played:
+            last_played = datetime.strptime(last_played, "%Y-%m-%d %H:%M:%S")
+            time_difference = (datetime.now() - last_played).total_seconds()
+            weight = max(time_difference, 1)
+        else:
+            weight = 10000
+
+        weighted_list.append((filepath, weight, runtime))
+
+    filepaths, weights, runtimes = zip(*weighted_list)
+    selected = random.choices(filepaths, weights=weights, k=1)[0]
+
+    # Update LastPlayed with Datetime.Now timestamp
+    now_str = datetime.strftime(datetime.now(), "%Y-%m-%d %H:%M:%S")
+    cursor.execute(f"Update COMMERCIALS SET LastPlayed = '{now_str}' WHERE Filepath = '{selected}'")
+    conn.commit()
+
+    # Get filepath and runtime using the selected commercial and return it
+    cursor.execute(f"SELECT Filepath,Runtime FROM COMMERCIALS WHERE Filepath = '{selected}'")
+    comm_info = cursor.fetchone()
+    conn.close()
+    return comm_info
+
 def add_commercial_break(channel_number, max_break):
     '''
     Adds a commercial break if commercials are allowed
@@ -515,6 +548,49 @@ def add_commercial_break(channel_number, max_break):
         else:
             log.debug("Commercial does not fit, continuing")
     
+    log.debug("End of commercial break")
+
+def add_commercial_break2(channel_number, max_break):
+    '''
+    Adds a commercial break if commercials are allowed
+
+    Args:
+        channel_number (string): Number of channel
+        filepath (string): Video file that is "currently playing"
+        max_break (string): Minutes and seconds of the maximum time for a single commercial break
+
+    Returns:
+        None
+
+    Raises:
+    '''
+
+    global marker
+
+    # Split up max break from timedelta to individual units
+    mb_hours = int(max_break.total_seconds() // 3600)
+    mb_minutes = int((max_break.total_seconds() % 3600) // 60)
+    mb_seconds = int(max_break.total_seconds() % 60)
+    mb_TD_str = f"{mb_hours:02}:{mb_minutes:02}:{mb_seconds:02}"
+    log.debug(f"Initial Max Break: {mb_TD_str}")
+
+    # Leave some padding - If max break gets less than 15 seconds, move on to next chapter
+    while max_break > timedelta(seconds=15):
+        # Re-calculate remaining time in commercial break
+        mb_hours = int(max_break.total_seconds() // 3600)
+        mb_minutes = int((max_break.total_seconds() % 3600) // 60)
+        mb_seconds = int(max_break.total_seconds() % 60)
+        mb_TD_str = f"{mb_hours:02}:{mb_minutes:02}:{mb_seconds:02}"
+
+        random_commercial = select_commercial(mb_TD_str)
+        log.debug(f"{random_commercial=}")
+        rc_filepath, rc_runtime = random_commercial
+        hours, minutes, seconds = map(int, rc_runtime.split(":"))
+        post_marker = marker + timedelta(hours=hours,minutes=minutes,seconds=seconds)
+        insert_into_schedule(channel_number, marker, post_marker, rc_filepath, None, rc_runtime)
+        max_break -= timedelta(hours=hours,minutes=minutes,seconds=seconds)
+        marker = post_marker
+
     log.debug("End of commercial break")
 
 
@@ -591,7 +667,125 @@ def add_final_commercial_break(channel_number, next_showtime):
     # Move marker
     marker = next_showtime
 
+def add_final_commercial_break2(channel_number, next_showtime):
+    '''
+    Adds a final commercial break after an episode has played its last chapter
+    Will play a filler track for the last ~30 seconds of break
+
+    Args:
+        channel_number (string): Number of channel
+        next_showtime (datetime): Next showtime of next playing item
+
+    Returns:
+        None
+
+    Raises:
+    Example:
+    '''
+    global marker
+
+    chosen_commercials = []
+
+    # convert next_showtime to datetime
+    nst_hour, nst_minute = map(int, next_showtime.split(":"))
+    next_showtime = datetime.now().replace(hour=nst_hour, minute=nst_minute, second=0, microsecond=0)
+
+    # Fill with commercials
+    while marker < (next_showtime - timedelta(seconds=60)):
+        # Determine time remaining in the final break
+        time_remaining = (next_showtime - timedelta(seconds=60)) - marker
+        tr_hours = int(time_remaining.total_seconds() // 3600)
+        tr_minutes = int((time_remaining.total_seconds() % 3600) // 60)
+        tr_seconds = int(time_remaining.total_seconds() % 60)
+        tr_str = f"{tr_hours:02}:{tr_minutes:02}:{tr_seconds:02}"
+
+        # Break loop if there is 15 seconds or less in time remaining so filler can play
+        if time_remaining <= timedelta(seconds=15):
+            break
+
+        random_commercial = select_commercial(tr_str)
+        log.debug(f"{random_commercial=}")
+        rc_filepath, rc_runtime = random_commercial
+        hours, minutes, seconds = map(int, rc_runtime.split(":"))
+        post_marker = marker + timedelta(hours=hours,minutes=minutes,seconds=seconds)
+        insert_into_schedule(channel_number, marker, post_marker, rc_filepath, None, rc_runtime)
+        time_remaining -= timedelta(hours=hours,minutes=minutes,seconds=seconds)
+        marker = post_marker
+
+    # Add filler
+    log.debug("Adding Filler")
+    query = """SELECT * FROM COMMERCIALS WHERE Tags LIKE '%filler%'"""
+    cursor.execute(query)
+    filler = cursor.fetchall()[0]
+
+    # Get length of filler play time
+    insert_into_schedule(channel_number, marker, next_showtime, filler[3], None, filler[2])
+
+    # Move marker
+    marker = next_showtime
+
 def add_post_movie(channel_number, next_showtime):
+    '''
+    Adds a final commercial break after an episode has played
+    Will play a filler track for the last ~30 seconds of break
+
+    Args:
+        channel_number (string): Number of channel
+        next_showtime (string): Next showtime of next playing item - "18:00:00"
+
+    Returns:
+        None
+
+    Raises:
+    Example:
+    '''
+    global marker
+
+    if not isinstance(next_showtime, datetime):
+        # Convert next_showtime to datetime
+        nst_hour, nst_minute = map(int, next_showtime.split(":"))
+        next_showtime = datetime.now().replace(hour=nst_hour, minute=nst_minute, second=0, microsecond=0)
+
+    # Determine time left between marker and next_showtime as a string
+    time_remaining = (next_showtime - timedelta(seconds=60)) - marker
+    tr_hours = int(time_remaining.total_seconds() // 3600)
+    tr_minutes = int((time_remaining.total_seconds() % 3600) // 60)
+    tr_seconds = int(time_remaining.total_seconds() % 60)
+    tr_str = f"{tr_hours:02}:{tr_minutes:02}:{tr_seconds:02}"
+
+    # Get all commercials and web content that fit within time remaining
+    query = f"""SELECT * FROM COMMERCIALS WHERE Tags LIKE '%trailers%' AND Runtime < '{tr_str}'"""
+    cursor.execute(query)
+    all_commercials = cursor.fetchall()
+
+    query = f"""SELECT * FROM WEB WHERE Runtime < '{tr_str}'"""
+    cursor.execute(query)
+    all_web = cursor.fetchall()
+
+    all_media = all_commercials + all_web
+    random.shuffle(all_media)
+    log.debug(f"Found {len(all_media)} items to fill post movie until {next_showtime}")
+
+    for random_media in all_media:
+        media_hour, media_minute, media_second = map(int, random_media[2].split(":"))
+        media_runtime_TD = timedelta(hours=media_hour, minutes=media_minute, seconds=media_second)
+        post_marker = marker + (media_runtime_TD + timedelta(seconds=1))
+        if post_marker < next_showtime:
+            # Insert into schedule and move the marker
+            insert_into_schedule(channel_number, str(marker), str(post_marker), random_media[3], None, random_media[2])
+            marker = post_marker
+        else:
+            continue
+
+    # Add final filler
+    log.debug("Adding Filler")
+    query = """SELECT * FROM COMMERCIALS WHERE Tags LIKE '%filler%'"""
+    cursor.execute(query)
+    filler = cursor.fetchall()[0]
+
+    insert_into_schedule(channel_number, str(marker), str(next_showtime), filler[3], None, filler[2])
+
+def add_post_movie2(channel_number, next_showtime):
     '''
     Adds a final commercial break after an episode has played
     Will play a filler track for the last ~30 seconds of break
@@ -889,7 +1083,7 @@ def create_schedule():
 
                             # Add commercial break
                             log.debug("Adding commercial break")
-                            add_commercial_break(channel_number, max_break_time)
+                            add_commercial_break2(channel_number, max_break_time)
 
                 else:
                     # Play episode entirely if no chapters are present

@@ -19,7 +19,10 @@ This is designed with specific software and hardware requirements:
 
 # Current Status
 
-## Last Update:  
+## Last Update:
+### 2025-01-15
+Running these scripts over the last few days has shown that everything is running right on time.  However, the transition from one video to another is a bit rough looking.  I'm also testing a new function that will choose commercials differently so that you won't see the same thing twice in a single break.
+
 ### 2025-01-09
 Additional channels have been added and ran through some thorough testing with scheduling; everything appears to be doing exactly as it should.  I will be letting this run throughout the next few days to verify that things are playing as scheduled.  Also, I want to do some work on the admin console (APITest.py) to have a tool that will help me validate playback.
 
