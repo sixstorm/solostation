@@ -233,7 +233,7 @@ def find_all_in_db_by_tag(tags):
         results = cursor.fetchall()
 
         for result in results:
-            (ID,episodeName,showName,season,episode,overview,tags,runtime,filepath,) = result
+            (ID,episodeName,showName,season,episode,overview,tags,runtime,filepath,lastplayed,) = result
             result_list.append({
                 "id": ID,
                 "name": episodeName,
@@ -244,6 +244,7 @@ def find_all_in_db_by_tag(tags):
                 "tags": tags,
                 "runtime": runtime,
                 "filepath": filepath,
+                "lastplayed": lastplayed
             })
 
     if "movie" in tags:
@@ -255,7 +256,7 @@ def find_all_in_db_by_tag(tags):
         results = cursor.fetchall()
 
         for result in results:
-            (ID,name,year,overview,tags,runtime,filepath,) = result
+            (ID,name,year,overview,tags,runtime,filepath,lastplayed,) = result
             result_list.append({
                 "name": name,
                 "year": year,
@@ -263,6 +264,7 @@ def find_all_in_db_by_tag(tags):
                 "tags": tags,
                 "runtime": runtime,
                 "filepath": filepath,
+                "lastplayed": lastplayed
             })
 
     if "music" in tags:
@@ -446,6 +448,72 @@ def calculate_max_break_time(runtime, chapters):
     # Final calculation - Time per commercial break
     max_break_time = total_commercial_time // len(chapters)
     return max_break_time
+
+def select_movie(media_list):
+    # Create a weighted list based on LastPlayed
+    weighted_list = []
+
+    for media in media_list:
+        if media["lastplayed"]:
+            last_played = datetime.strptime(media["lastplayed"], "%Y-%m-%d %H:%M:%S")
+            time_difference = (datetime.now() - last_played).total_seconds()
+            weight = max(time_difference, 1)
+        else:
+            weight = 10000
+
+        weighted_list.append((media["filepath"], weight, media["runtime"]))
+
+    filepaths, weights, runtimes = zip(*weighted_list)
+    selected = random.choices(filepaths, weights=weights, k=1)[0]
+
+    # Update LastPlayed with Datetime.Now timestamp
+    now_str = datetime.strftime(datetime.now(), "%Y-%m-%d %H:%M:%S")
+    cursor.execute(f"Update MOVIE SET LastPlayed = '{now_str}' WHERE Filepath = '{selected}'")
+    conn.commit()
+
+    # Get filepath and runtime using the selected commercial and return it
+    cursor.execute(f"SELECT Name,Filepath,Runtime FROM MOVIE WHERE Filepath = '{selected}'")
+    movie_info = cursor.fetchone()
+    movie_info_obj = {
+        "name": movie_info[0],
+        "filepath": movie_info[1],
+        "runtime": movie_info[2]
+    }
+    log.debug(movie_info_obj)
+    return movie_info_obj
+
+def select_episode(media_list):
+    # Create a weighted list based on LastPlayed
+    weighted_list = []
+
+    for media in media_list:
+        if media["lastplayed"]:
+            last_played = datetime.strptime(media["lastplayed"], "%Y-%m-%d %H:%M:%S")
+            time_difference = (datetime.now() - last_played).total_seconds()
+            weight = max(time_difference, 1)
+        else:
+            weight = 10000
+
+        weighted_list.append((media["filepath"], weight, media["runtime"]))
+
+    filepaths, weights, runtimes = zip(*weighted_list)
+    selected = random.choices(filepaths, weights=weights, k=1)[0]
+
+    # Update LastPlayed with Datetime.Now timestamp
+    now_str = datetime.strftime(datetime.now(), "%Y-%m-%d %H:%M:%S")
+    cursor.execute(f"Update TV SET LastPlayed = '{now_str}' WHERE Filepath = '{selected}'")
+    conn.commit()
+
+    # Get filepath and runtime using the selected commercial and return it
+    cursor.execute(f"SELECT Name,Filepath,Runtime FROM TV WHERE Filepath = '{selected}'")
+    episode_info = cursor.fetchone()
+    episode_info_obj = {
+        "name": episode_info[0],
+        "filepath": episode_info[1],
+        "runtime": episode_info[2]
+    }
+    log.debug(episode_info_obj)
+    return episode_info_obj
 
 def select_commercial(max_break):
     # Open the database and find all commercials less than or equal to the max_break input
@@ -648,12 +716,10 @@ def add_final_commercial_break(channel_number, next_showtime):
 
         hours, minutes, seconds = map(int, random_commercial[2].split(":"))
         rc_str = f"{hours:02}:{minutes:02}:{seconds:02}"
-        if rc_str <= tr_str:
-            log.debug(f"{rc_str} fits under {tr_str}")
-            post_marker = marker + timedelta(hours=hours,minutes=minutes,seconds=seconds)
-            insert_into_schedule(channel_number, marker, post_marker, random_commercial[3], None, random_commercial[2])
-            time_remaining -= timedelta(hours=hours,minutes=minutes,seconds=seconds)
-            marker = post_marker
+        post_marker = marker + timedelta(hours=hours,minutes=minutes,seconds=seconds)
+        insert_into_schedule(channel_number, marker, post_marker, random_commercial[3], None, random_commercial[2])
+        time_remaining -= timedelta(hours=hours,minutes=minutes,seconds=seconds)
+        marker = post_marker
 
     # Add filler
     log.debug("Adding Filler")
@@ -1022,11 +1088,14 @@ def create_schedule():
                 log.debug(f"Could not find anything in the schedule for {slot_time}")
 
             # Search database for content based on slot tags
-            random_media = random.choice(find_all_in_db_by_tag(slot_tags))
-            log.debug(f"Chose {random_media['name']} for {slot_time}")
+            # random_media = random.choice(find_all_in_db_by_tag(slot_tags))  # List of dicts
 
             # Process TV episode
             if "tv" in slot_tags:
+                # Get random episode from the database
+                random_media = select_episode(find_all_in_db_by_tag(slot_tags))  
+                log.debug(f"Chose {random_media['name']} for {slot_time}")
+
                 # If episode is over 29 minutes and 45 seconds?
                 episode_hours, episode_minutes, episode_seconds = map(int, random_media["runtime"].split(":"))
                 episode_timedelta = timedelta(hours=episode_hours, minutes=episode_minutes, seconds=episode_seconds)
@@ -1105,10 +1174,12 @@ def create_schedule():
                 log.debug(f"Adding final commercial break until next showtime: {next_showtime}")
                 add_final_commercial_break(channel_number, next_showtime)
 
-                # Update stats
+            # Movies
+            elif "movie" in slot_tags:
+                # Get random movie from the database
+                random_media = select_movie(find_all_in_db_by_tag(slot_tags))  
+                log.debug(f"Chose {random_media['name']} for {slot_time}")
 
-            # Movies and Web Content
-            else:
                 movie_hours, movie_minutes, movie_seconds = map(int, random_media["runtime"].split(":"))
                 post_marker = marker + timedelta(hours=movie_hours, minutes=movie_minutes, seconds=(movie_seconds + 1))
                 insert_into_schedule(channel_number, marker, post_marker, random_media["filepath"], None, random_media["runtime"])

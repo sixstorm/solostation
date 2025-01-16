@@ -12,6 +12,7 @@ import time
 from rich.console import Console
 from rich.logging import RichHandler
 from dotenv import load_dotenv
+from urllib.request import urlretrieve
 
 # Load env file
 load_dotenv()
@@ -165,7 +166,8 @@ def download_episode_metadata(show_name, show_year, episode_json, extended_json)
         json.dump(extended_data, file, indent=4)
 
 def download_movie_metadata(movie_name, movie_year, movie_json, movie_extended_json):
-    """_summary_
+    """
+    Downloads all movies metadata from TVDB and saves a local copy
 
     Args:
         movie_name (_type_): _description_
@@ -197,7 +199,20 @@ def download_movie_metadata(movie_name, movie_year, movie_json, movie_extended_j
             json.dump(movie_extended_data, file, indent=4)
     except Exception as e:
         log.debug(f"Error downloading movie metadata: {e}")
-        
+
+def download_art(movie_name, movie_extended_json, movie_art):
+    # Read in local JSON extended data
+    with open(movie_extended_json, "r") as file:
+        movie_extended_data = json.load(file)
+
+    # Download movie art
+    try:
+        all_artwork = movie_extended_data['artworks']
+        movie_art_url = [a["image"] for a in all_artwork if a["width"] == 680][0]
+        urlretrieve(movie_art_url, movie_art)
+    except Exception as e:
+        log.debug(f"Could not download art for {movie_name}: {e}")
+        time.sleep(1)
 
 def check_if_in_table(table, filepath):
     """
@@ -246,7 +261,7 @@ def initialize_all_tables():
         ID INTEGER PRIMARY KEY AUTOINCREMENT,
         Channel INTEGER,
         TimesPlayed INTEGER,
-        Filepath TEXT
+        Filepath TEXT,
     );"""
 
     cursor.execute(table)
@@ -282,7 +297,8 @@ def initialize_all_tables():
         ID INTEGER PRIMARY KEY AUTOINCREMENT,
         Tags TEXT,
         Runtime TEXT,
-        Filepath TEXT
+        Filepath TEXT,
+        LastPlayed TEXT
     );"""
 
     cursor.execute(table)
@@ -298,7 +314,8 @@ def initialize_all_tables():
         Overview TEXT,
         Tags TEXT,
         Runtime TEXT,
-        Filepath TEXT
+        Filepath TEXT,
+        LastPlayed TEXT
     );"""
 
     cursor.execute(table)
@@ -325,7 +342,8 @@ def initialize_all_tables():
         Overview TEXT,
         Tags TEXT,
         Runtime TEXT,
-        Filepath TEXT
+        Filepath TEXT,
+        LastPlayed TEXT
     );"""
 
     cursor.execute(table)
@@ -572,6 +590,7 @@ def process_movies():
         except IndexError:
             continue
 
+
         # Check and insert movie metadata into the database if it doesn't exist
         if not check_if_in_table("MOVIE", movie_file):
             # Parse movie name and year from filename
@@ -579,6 +598,7 @@ def process_movies():
             movie_year = re.search("\(([0-9]{4})\)", movie_folder)[1]
             movie_name_no_spaces = movie_name.replace(" ", "")
             movie_json = f"{movie_root_folder}/{movie_name_no_spaces}.json"
+            movie_art = f"{movie_root_folder}/{movie_name_no_spaces}.jpg"
             movie_extended_json = f"{movie_root_folder}/{movie_name_no_spaces}-extended.json"
             log.debug(f"{movie_name=}")
             log.debug(f"{movie_year=}")
@@ -589,6 +609,10 @@ def process_movies():
             # Download movie metadata json file if not available
             if not os.path.exists(movie_json) or not os.path.exists(movie_extended_json):
                 download_movie_metadata(movie_name, movie_year, movie_json, movie_extended_json)
+
+            # Download movie art
+            if not os.path.exists(movie_art):
+                download_art(movie_name, movie_extended_json, movie_art)
 
             # Open local json files
             with open(movie_json) as file:

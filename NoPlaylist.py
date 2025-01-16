@@ -159,7 +159,7 @@ def show_info_card():
 current_channel = 2
 first_time = True
 
-MediaManager.process_commercials()
+MediaManager.process_movies()
 
 # Check to see if schedule needs to be rebuilt
 Schedule.clear_schedule_table()

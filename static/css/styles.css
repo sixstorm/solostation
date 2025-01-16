@@ -1,0 +1,71 @@
+/* static/css/styles.css */
+/*
+Blueberry: #6B7A8F
+
+Apricot: #F7882F
+
+Citrus: #F7C331
+
+Apple Core: #DCC7AA
+*/
+
+/*
+Are ya yellow?!: #feda6a
+
+Silver Fox: #d4d4dc
+
+Deep Matte Grey: #393f4d
+
+Dark Slate: #1d1e22
+*/
+:root {
+    --areyayellow: #feda6a;
+    --silverfox: #d4d4dc;
+    --deepmattegrey: #393f4d;
+    --darkslate:#1d1e22;
+}
+
+
+@font-face {
+    font-family: "Geist";
+    src: url('/static/fonts/GeistMonoNerdFont-Regular.otf') format('opentype');
+}
+
+body {
+    font-family: "Geist", Arial, sans-serif;
+    background-color: var(--deepmattegrey);
+    text-align: center;
+}
+
+h1 {
+    margin-bottom: 50px;
+    text-align: center;
+    color: var(--silverfox);
+    font-family: "Geist", Arial, sans-serif;
+}
+
+.channels {
+    font-family: "Geist", Arial, sans-serif;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+.channel {
+    border: 5px solid var(--darkslate);
+    border-radius: 5px;
+    background-color: var(--areyayellow);
+    margin: 0 auto;
+    margin-bottom: 20px;
+    line-height: 1.5;
+    width: 50%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+}
+
+.channel-title {
+    font-family: "Geist", Arial, sans-serif;
+    font-weight: bold;
+}
