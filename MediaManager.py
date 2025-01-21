@@ -364,23 +364,27 @@ def process_music():
 
     for file in glob.glob(f"{music_root}/*.mp4"):
         if not check_if_in_table("MUSIC", file):
-            # Get artist and title from filename
-            artist = file.split(" - ")[0]
-            artist = artist.split("/")[5]
-            title = file.split(" - ")[1]
-            title = title.split(" (")[0]
-            title = title.split(" [")[0]
-            title = title.split(".mp4")[0]
+            try:
+                # Get artist and title from filename
+                artist = file.split(" - ")[0]
+                artist = artist.split("/")[5]
+                title = file.split(" - ")[1]
+                title = title.split(" (")[0]
+                title = title.split(" [")[0]
+                title = title.split(".mp4")[0]
 
-            # Get runtime
-            runtime = get_runtime(file)
+                # Get runtime
+                runtime = get_runtime(file)
 
-            # Insert into database and commit changes
-            cursor.execute(
-                "INSERT INTO MUSIC (Tags, Artist, Title, Runtime, Filepath) VALUES (?, ?, ?, ?, ?)",
-                ("music", artist, title, runtime, file),
-            )
-            conn.commit()
+                # Insert into database and commit changes
+                cursor.execute(
+                    "INSERT INTO MUSIC (Tags, Artist, Title, Runtime, Filepath) VALUES (?, ?, ?, ?, ?)",
+                    ("music", artist, title, runtime, file),
+                )
+                conn.commit()
+            except Exception as e:
+                log.debug(f"Could not process {file}")
+                log.debug(e)
 
     # Process each MTV ident
     for file in glob.glob(f"{music_root}/idents/*.mp4"):

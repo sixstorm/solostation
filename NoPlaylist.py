@@ -7,6 +7,8 @@ import sqlite3
 import os
 import mpv
 import re
+import asyncio
+import threading
 from PIL import Image, ImageDraw, ImageFont
 from dotenv import load_dotenv
 
@@ -122,6 +124,9 @@ def get_chapter_start_time(filepath, chapter_number):
     return chapter_start
 
 def show_info_card():
+    '''
+    Displays music video information on screen for 5 seconds
+    '''
     font = ImageFont.truetype(os.getenv("CUSTOM_FONT"), 40)
     overlay = player.create_image_overlay()
     artistimg = Image.new("RGBA", (1000, 1500), (255, 255, 255, 0))
@@ -154,127 +159,243 @@ def show_info_card():
     except Exception as e:
         log.debug(f"show_info_card: {e}")
 
+@player.on_key_press("w")
+def listen_for_channel_change():
+    global current_channel, channel_changed
+
+    current_channel += 1
+    if current_channel > 6:
+        current_channel = 2
+    log.debug(f"{current_channel=}")
+    channel_changed = True
+    log.debug(f"{channel_changed=}")
+
+@player.on_key_press("s")
+def listen_for_channel_change():
+    global current_channel, channel_changed
+
+    current_channel -= 1
+    if current_channel < 2:
+        current_channel = 6
+    log.debug(f"{current_channel=}")
+    channel_changed = True
+    log.debug(f"{channel_changed=}")
+
+
 # Main loop
 # Set initial channel
 current_channel = 2
 first_time = True
 
-MediaManager.process_movies()
+# MediaManager.process_movies()
+# MediaManager.process_music()
+# MediaManager.process_tv()
 
 # Check to see if schedule needs to be rebuilt
-Schedule.clear_schedule_table()
+# Schedule.clear_schedule_table()
 if Schedule.check_schedule_for_rebuild():
     Schedule.clear_old_schedule_items()
     Schedule.create_schedule()
 else:
     Schedule.clear_old_schedule_items()
 
-while True:
-    channel_changed = False
-    playable = False
+async def playback_loop():
+    global current_channel, channel_changed
 
-    # Import schedule
-    schedule = import_schedule(current_channel)
+    while True:
+        log.debug("RESTART")
+        channel_changed = False
+        playable = False
 
-    while not channel_changed:
-        now = datetime.now().replace(microsecond=0)
+        # Import schedule
+        schedule = import_schedule(current_channel)
 
-        # Get playing now
-        playing_now = [s for s in schedule if now >= s["showtime"] and now < s["end"]][0]
-        log.debug(f"Currently playing {playing_now['filepath']} until {playing_now['end']}")
+        while not channel_changed:
+            now = datetime.now().replace(microsecond=0)
 
-        # Get what is playing next, if possible
-        try:
-            playing_now_index = schedule.index(playing_now)
-            playing_next = schedule[playing_now_index + 1]
-        except IndexError:
-            playing_next = None
+            # Get playing now
+            playing_now = [s for s in schedule if now >= s["showtime"] and now < s["end"]][0]
+            if not playing_now:
+                await asyncio.sleep(1)
+            log.debug(f"Currently playing {playing_now['filepath']} until {playing_now['end']}")
 
-        # Start playback
-        player.play(playing_now["filepath"])
-        while not playable:
+            # Get what is playing next, if possible
             try:
-                duration = player.duration
-                if duration is not None:
-                    playable = True
-            except Exception as e:
-                time.sleep(0.5)
+                playing_now_index = schedule.index(playing_now)
+                playing_next = schedule[playing_now_index + 1]
+            except IndexError:
+                playing_next = None
 
-        # Chapter
-        if playing_now["chapter"] is not None:
-            log.debug(f"Chapter: {playing_now['chapter']}")
-            chapter_start_time = get_chapter_start_time(playing_now["filepath"], playing_now["chapter"])
-            time_gap = datetime.now() - playing_now["showtime"]
-            chapter_hour, chapter_minute, chapter_second = map(int, chapter_start_time.split(":"))
-            elapsed_time = (time_gap + timedelta(hours=chapter_hour, minutes=chapter_minute, seconds=chapter_second)).total_seconds()
-            log.debug(f"{elapsed_time=}")
-            log.debug(f"{type(elapsed_time)}")
-        
-            if elapsed_time > 0:
-                log.debug(f"{elapsed_time=}")
-                player.wait_for_property("seekable")
-                player.seek(elapsed_time, reference="absolute")
+            # Start playback
+            player.play(playing_now["filepath"])
+            while not playable:
+                try:
+                    duration = player.duration
+                    if duration is not None:
+                        playable = True
+                        await asyncio.sleep(0.5)
+                except Exception as e:
+                    await asyncio.sleep(0.5)
 
-            if player.pause:
-                log.debug("Unpausing playback")
-                player.pause = False
-
-            while now < playing_now["end"]:
-                now = datetime.now().replace(microsecond=0)
-                time.sleep(0.1)
-
-        # Filler
-        # Make sure that filler stops on time
-        elif "Filler" in playing_now["filepath"]:
-            log.debug("Filler time")
+            # Determine seek time
+            if playing_now["chapter"] is not None:
+                chapter_start_time = get_chapter_start_time(playing_now["filepath"], playing_now["chapter"])
+                time_gap = datetime.now() - playing_now["showtime"]
+                chapter_hour, chapter_minute, chapter_second = map(int, chapter_start_time.split(":"))
+                elapsed_time = (time_gap + timedelta(hours=chapter_hour, minutes=chapter_minute, seconds=chapter_second)).total_seconds()
+            else:
+                elapsed_time = (now - playing_now["showtime"]).total_seconds()
             
+            # player.wait_for_property("seekable")
+            while not player.seekable:
+                await asyncio.sleep(0.1)
+
+            elapsed_time = max(0, elapsed_time)
+            log.debug(f"{elapsed_time=}")
+            if player.seekable and elapsed_time > 0:
+                try:
+                    player.seek(elapsed_time, reference="absolute")
+                except Exception as e:
+                    log.debug(f"Seek Error: {e}")
+                    break
+
+            # Unpause
             if player.pause:
-                log.debug("Unpausing playback")
                 player.pause = False
 
-            while now < playing_now["end"]:
-                now = datetime.now().replace(microsecond=0)
-                time.sleep(0.1)
-        
-        # No chapters, movies, etc
-        # Playthough until the end of the item
-        else:
-            elapsed_time = (now - playing_now["showtime"]).total_seconds()
-
-            if elapsed_time > 0:
-                log.debug(f"{elapsed_time=}")
-                player.wait_for_property("seekable")
-                player.seek(elapsed_time, reference="absolute")
-
-            if player.pause:
-                log.debug("Unpausing playback")
-                player.pause = False
-
-            # Music video - Info cards
+            # Loud Stuff
             if current_channel == 3:
                 if "ident" not in player.path:
                     if first_time == False:
-                        time.sleep(3)
+                        await asyncio.sleep(3)
                         show_info_card()
                     else:
+                        first_time = True
                         show_info_card()
 
-                    while True:
-                        current_time = player.time_pos
-                        duration = player.duration
-                        remaining_time = duration - current_time if current_time is not None else None
+            while now < playing_now["end"]:
+                now = datetime.now().replace(microsecond=0)
 
+                # Loud stuff
+                if current_channel == 3:
+                    if "ident" not in player.path:
+                        remaining_time = player.duration - player.time_pos if player.time_pos is not None else None
                         if remaining_time is not None and remaining_time <= 10:
                             show_info_card()
-                            break
 
-            log.debug("Waiting for file to be completely played")
-            player.wait_for_property("eof-reached")
-            log.debug("End of file has been reached")
+                if channel_changed:
+                    break
+                await asyncio.sleep(0.1)
 
+async def main():
+    await playback_loop()
 
-        # Playback has ended
-                    # if (int(player.time_pos) == 3) or (int(player.time_pos) == (int(player.duration) - 10) or first_time == True):
-                    #     show_info_card()
-                    #     first_time = False
+loop = asyncio.get_event_loop()
+loop.run_until_complete(main())
 
+# while True:
+#     channel_changed = False
+#     playable = False
+
+#     # Import schedule
+#     schedule = import_schedule(current_channel)
+
+#     while not channel_changed:
+#         now = datetime.now().replace(microsecond=0)
+
+#         # Get playing now
+#         playing_now = [s for s in schedule if now >= s["showtime"] and now < s["end"]][0]
+#         log.debug(f"Currently playing {playing_now['filepath']} until {playing_now['end']}")
+
+#         # Get what is playing next, if possible
+#         try:
+#             playing_now_index = schedule.index(playing_now)
+#             playing_next = schedule[playing_now_index + 1]
+#         except IndexError:
+#             playing_next = None
+
+#         # Start playback
+#         player.play(playing_now["filepath"])
+#         while not playable:
+#             try:
+#                 duration = player.duration
+#                 if duration is not None:
+#                     playable = True
+#             except Exception as e:
+#                 time.sleep(0.5)
+
+#         # Chapter
+#         if playing_now["chapter"] is not None:
+#             log.debug(f"Chapter: {playing_now['chapter']}")
+#             chapter_start_time = get_chapter_start_time(playing_now["filepath"], playing_now["chapter"])
+#             time_gap = datetime.now() - playing_now["showtime"]
+#             chapter_hour, chapter_minute, chapter_second = map(int, chapter_start_time.split(":"))
+#             elapsed_time = (time_gap + timedelta(hours=chapter_hour, minutes=chapter_minute, seconds=chapter_second)).total_seconds()
+#             log.debug(f"{elapsed_time=}")
+#             log.debug(f"{type(elapsed_time)}")
+        
+#             if elapsed_time > 0:
+#                 log.debug(f"{elapsed_time=}")
+#                 player.wait_for_property("seekable")
+#                 player.seek(elapsed_time, reference="absolute")
+
+#             if player.pause:
+#                 log.debug("Unpausing playback")
+#                 player.pause = False
+
+#             while now < playing_now["end"]:
+#                 now = datetime.now().replace(microsecond=0)
+#                 if channel_changed:
+#                     break
+#                 time.sleep(0.1)
+
+#         # Filler
+#         # Make sure that filler stops on time
+#         elif "Filler" in playing_now["filepath"]:
+#             log.debug("Filler time")
+            
+#             if player.pause:
+#                 log.debug("Unpausing playback")
+#                 player.pause = False
+
+#             while now < playing_now["end"]:
+#                 now = datetime.now().replace(microsecond=0)
+#                 if channel_changed:
+#                     break
+#                 time.sleep(0.1)
+        
+#         # No chapters, movies, etc
+#         # Playthough until the end of the item
+#         else:
+#             elapsed_time = (now - playing_now["showtime"]).total_seconds()
+
+#             if elapsed_time > 0:
+#                 log.debug(f"{elapsed_time=}")
+#                 player.wait_for_property("seekable")
+#                 player.seek(elapsed_time, reference="absolute")
+
+#             if player.pause:
+#                 log.debug("Unpausing playback")
+#                 player.pause = False
+
+#             # Music video - Info cards
+#             if current_channel == 3:
+#                 if "ident" not in player.path:
+#                     if first_time == False:
+#                         time.sleep(3)
+#                         show_info_card()
+#                     else:
+#                         show_info_card()
+
+#                     while True:
+#                         current_time = player.time_pos
+#                         duration = player.duration
+#                         remaining_time = duration - current_time if current_time is not None else None
+
+#                         if remaining_time is not None and remaining_time <= 10:
+#                             show_info_card()
+#                             break
+
+#             log.debug("Waiting for file to be completely played")
+#             player.wait_for_property("eof-reached")
+#             log.debug("End of file has been reached")

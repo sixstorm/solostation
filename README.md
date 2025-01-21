@@ -20,6 +20,9 @@ This is designed with specific software and hardware requirements:
 # Current Status
 
 ## Last Update:
+### 2025-01-21
+Running more tests; this time importing new media and seeing how the Media Manager would handle it.  Other than some basic error handling, everything was perfect.  "Loud!" is showing Artist and Title information (MTV info cards) but still needs some work.  Finally, I have implemented channel changing using "w" and "s" keyboard keys.  This works enough for now.
+
 ### 2025-01-15
 Running these scripts over the last few days has shown that everything is running right on time.  However, the transition from one video to another is a bit rough looking.  I'm also testing a new function that will choose commercials differently so that you won't see the same thing twice in a single break.
 
