@@ -33,7 +33,7 @@ cursor = conn.cursor()
 # Rich log
 FORMAT = "%(message)s"
 logging.basicConfig(
-    level="DEBUG", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+    level="INFO", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
 )
 log = logging.getLogger("rich")
 console = Console

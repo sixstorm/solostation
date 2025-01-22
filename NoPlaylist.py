@@ -16,11 +16,12 @@ from rich.console import Console
 from rich.table import Table
 from rich.logging import RichHandler
 from rich.text import Text
+from rich.progress import Progress
 
 # Rich log
 FORMAT = "%(message)s"
 logging.basicConfig(
-    level="DEBUG", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+    level="INFO", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
 )
 log = logging.getLogger("rich")
 
@@ -123,7 +124,7 @@ def get_chapter_start_time(filepath, chapter_number):
 
     return chapter_start
 
-def show_info_card():
+async def show_info_card():
     '''
     Displays music video information on screen for 5 seconds
     '''
@@ -154,7 +155,7 @@ def show_info_card():
             stroke_fill="black",
         )
         overlay.update(artistimg)
-        time.sleep(5)
+        await asyncio.sleep(5)
         overlay.remove()
     except Exception as e:
         log.debug(f"show_info_card: {e}")
@@ -184,20 +185,37 @@ def listen_for_channel_change():
 
 # Main loop
 # Set initial channel
-current_channel = 2
+current_channel = 3
 first_time = True
 
-# MediaManager.process_movies()
-# MediaManager.process_music()
-# MediaManager.process_tv()
+# Media Management
+os.system('clear')
+pretask_functions = [
+    MediaManager.process_movies, 
+    MediaManager.process_music, 
+    MediaManager.process_tv,
+    MediaManager.process_commercials,
+    MediaManager.process_web
+]
 
-# Check to see if schedule needs to be rebuilt
-# Schedule.clear_schedule_table()
-if Schedule.check_schedule_for_rebuild():
-    Schedule.clear_old_schedule_items()
-    Schedule.create_schedule()
-else:
-    Schedule.clear_old_schedule_items()
+with Progress() as p:
+    task = p.add_task("Managing Media:", total=len(pretask_functions))
+    for func in pretask_functions:
+        func()
+        p.update(task, advance=1)
+
+# Schedule Functions
+schedule_functions = [
+    Schedule.clear_old_schedule_items,
+    Schedule.check_schedule_for_rebuild
+]
+
+with Progress() as p:
+    task = p.add_task("Checking schedule:", total=len(schedule_functions))
+    for func in schedule_functions:
+        func()
+        p.update(task, advance=1)
+
 
 async def playback_loop():
     global current_channel, channel_changed
@@ -227,15 +245,16 @@ async def playback_loop():
                 playing_next = None
 
             # Start playback
+            log.debug(f"MPV is playing {playing_now['filepath']}")
             player.play(playing_now["filepath"])
+
             while not playable:
                 try:
-                    duration = player.duration
-                    if duration is not None:
+                    if player.duration is not None and player.time_pos is not None and player.seekable:
                         playable = True
-                        await asyncio.sleep(0.5)
+                        await asyncio.sleep(1)
                 except Exception as e:
-                    await asyncio.sleep(0.5)
+                    log.debug(e)
 
             # Determine seek time
             if playing_now["chapter"] is not None:
@@ -247,31 +266,27 @@ async def playback_loop():
                 elapsed_time = (now - playing_now["showtime"]).total_seconds()
             
             # player.wait_for_property("seekable")
-            while not player.seekable:
-                await asyncio.sleep(0.1)
+            # while not player.seekable:
+            #     log.debug("Waiting for seekability")
+            #     log.debug(f"Seekable: {player.seekable}")
+            #     await asyncio.sleep(0.1)
 
             elapsed_time = max(0, elapsed_time)
             log.debug(f"{elapsed_time=}")
-            if player.seekable and elapsed_time > 0:
+            if elapsed_time > 0:
                 try:
                     player.seek(elapsed_time, reference="absolute")
                 except Exception as e:
                     log.debug(f"Seek Error: {e}")
                     break
+            else:
+                await asyncio.sleep(0.1)
 
             # Unpause
             if player.pause:
                 player.pause = False
 
-            # Loud Stuff
-            if current_channel == 3:
-                if "ident" not in player.path:
-                    if first_time == False:
-                        await asyncio.sleep(3)
-                        show_info_card()
-                    else:
-                        first_time = True
-                        show_info_card()
+            log.debug("Entering playback loop")
 
             while now < playing_now["end"]:
                 now = datetime.now().replace(microsecond=0)
@@ -279,19 +294,32 @@ async def playback_loop():
                 # Loud stuff
                 if current_channel == 3:
                     if "ident" not in player.path:
-                        remaining_time = player.duration - player.time_pos if player.time_pos is not None else None
-                        if remaining_time is not None and remaining_time <= 10:
-                            show_info_card()
+                        if player.time_pos is not None:
+                            log.debug(f"This is NOT an ident: {player.path}")
+                            if player.time_pos >= 3 and player.time_pos <= 4:
+                                await show_info_card()
+
+                            remaining_time = player.duration - player.time_pos if player.time_pos is not None else None
+                            if remaining_time is not None and remaining_time <= 10 and remaining_time > 8:
+                                await show_info_card()
+                    else:
+                        log.debug(f"This is an ident: {player.path}")
 
                 if channel_changed:
                     break
                 await asyncio.sleep(0.1)
+
 
 async def main():
     await playback_loop()
 
 loop = asyncio.get_event_loop()
 loop.run_until_complete(main())
+
+
+############
+# Original
+############
 
 # while True:
 #     channel_changed = False

@@ -16,7 +16,7 @@ load_dotenv()
 # Rich log
 FORMAT = "%(message)s"
 logging.basicConfig(
-    level="DEBUG", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+    level="INFO", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
 )
 log = logging.getLogger("rich")
 
@@ -116,9 +116,10 @@ def check_schedule_for_rebuild():
         results = cursor.fetchone()[0]
         if results == 0:
             rebuild_needed = True
+            create_schedule()
             break
 
-    return rebuild_needed
+    # return rebuild_needed
 
 def insert_into_schedule(channel_number, showtime, end, filepath, chapter, runtime):
     """
@@ -917,7 +918,6 @@ def schedule_loud(channel_number, channel_start_time):
     marker = datetime.now().replace(microsecond=0)
     channel_end_time = (marker + timedelta(days=1)).replace(hour=2, minute=0, second=0, microsecond=0)
     log.debug(f"Loud is scheduled to run from {channel_start_time} until {channel_end_time}")
-    time.sleep(1)
 
     all_music_videos = []
     all_idents = find_all_in_db_by_tag("ident")
@@ -932,7 +932,7 @@ def schedule_loud(channel_number, channel_start_time):
         ident_index = 0
 
         while video_index < len(all_music_videos):
-            num_videos = random.randint(4,8)
+            num_videos = random.randint(1,1)
             final_list.extend(all_music_videos[video_index:video_index + num_videos])
             video_index += num_videos
 
@@ -947,6 +947,25 @@ def schedule_loud(channel_number, channel_start_time):
             post_marker = marker + mv_runtime_TD
             insert_into_schedule(channel_number, marker, post_marker, mv["filepath"], None, mv["runtime"])
             marker = post_marker
+
+def schedule_loud2(channel_number, channel_start_time):
+    marker = datetime.now().replace(microsecond=0)
+    channel_end_time = (marker + timedelta(days=1)).replace(hour=2, minute=0, second=0, microsecond=0)
+    log.debug(f"Loud is scheduled to run from {channel_start_time} until {channel_end_time}")
+
+    all_idents = find_all_in_db_by_tag("ident")
+    while marker < channel_end_time:
+        if len(all_idents) == 0:
+            all_idents = find_all_in_db_by_tag("ident")
+
+        # Append to the schedule
+        for mv in all_idents:
+            hours, minutes, seconds = map(int, mv["runtime"].split(":"))
+            mv_runtime_TD = timedelta(hours=hours,minutes=minutes,seconds=seconds)
+            post_marker = marker + mv_runtime_TD
+            insert_into_schedule(channel_number, marker, post_marker, mv["filepath"], None, mv["runtime"])
+            marker = post_marker
+
 
 def schedule_bang(channel_number, channel_start_time):
     global marker
