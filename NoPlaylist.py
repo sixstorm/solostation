@@ -21,7 +21,7 @@ from rich.progress import Progress
 # Rich log
 FORMAT = "%(message)s"
 logging.basicConfig(
-    level="INFO", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+    level="DEBUG", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
 )
 log = logging.getLogger("rich")
 
@@ -167,9 +167,7 @@ def listen_for_channel_change():
     current_channel += 1
     if current_channel > 6:
         current_channel = 2
-    log.debug(f"{current_channel=}")
     channel_changed = True
-    log.debug(f"{channel_changed=}")
 
 @player.on_key_press("s")
 def listen_for_channel_change():
@@ -178,9 +176,7 @@ def listen_for_channel_change():
     current_channel -= 1
     if current_channel < 2:
         current_channel = 6
-    log.debug(f"{current_channel=}")
     channel_changed = True
-    log.debug(f"{channel_changed=}")
 
 
 # Main loop
@@ -234,7 +230,7 @@ async def playback_loop():
             # Get playing now
             playing_now = [s for s in schedule if now >= s["showtime"] and now < s["end"]][0]
             if not playing_now:
-                await asyncio.sleep(1)
+                await asyncio.sleep(0.1)
             log.debug(f"Currently playing {playing_now['filepath']} until {playing_now['end']}")
 
             # Get what is playing next, if possible
@@ -252,7 +248,7 @@ async def playback_loop():
                 try:
                     if player.duration is not None and player.time_pos is not None and player.seekable:
                         playable = True
-                        await asyncio.sleep(1)
+                        await asyncio.sleep(0.1)
                 except Exception as e:
                     log.debug(e)
 
@@ -265,12 +261,6 @@ async def playback_loop():
             else:
                 elapsed_time = (now - playing_now["showtime"]).total_seconds()
             
-            # player.wait_for_property("seekable")
-            # while not player.seekable:
-            #     log.debug("Waiting for seekability")
-            #     log.debug(f"Seekable: {player.seekable}")
-            #     await asyncio.sleep(0.1)
-
             elapsed_time = max(0, elapsed_time)
             log.debug(f"{elapsed_time=}")
             if elapsed_time > 0:
@@ -295,7 +285,7 @@ async def playback_loop():
                 if current_channel == 3:
                     if "ident" not in player.path:
                         if player.time_pos is not None:
-                            log.debug(f"This is NOT an ident: {player.path}")
+                            # log.debug(f"This is NOT an ident: {player.path}")
                             if player.time_pos >= 3 and player.time_pos <= 4:
                                 await show_info_card()
 

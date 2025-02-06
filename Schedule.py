@@ -16,7 +16,7 @@ load_dotenv()
 # Rich log
 FORMAT = "%(message)s"
 logging.basicConfig(
-    level="INFO", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+    level="DEBUG", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
 )
 log = logging.getLogger("rich")
 
@@ -1088,8 +1088,8 @@ def create_schedule():
 
         # Non-specialty Channels
         for slot_index, (slot_time, slot_tags) in enumerate(channel_schedule.items()):
-            log.info(slot_time)
-            log.info(slot_tags)
+            log.debug(slot_time)
+            log.debug(slot_tags)
 
             # Set marker for slot as start
             slot_hour, slot_minute = map(int, slot_time.split(":"))
@@ -1102,12 +1102,9 @@ def create_schedule():
                 results = cursor.fetchone()[0]
                 if results:
                     log.debug(f"Found {results} for {slot_time}")
-                    continue
+                    # continue
             except Exception as e:
                 log.debug(f"Could not find anything in the schedule for {slot_time}")
-
-            # Search database for content based on slot tags
-            # random_media = random.choice(find_all_in_db_by_tag(slot_tags))  # List of dicts
 
             # Process TV episode
             if "tv" in slot_tags:

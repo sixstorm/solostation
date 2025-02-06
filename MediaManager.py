@@ -33,7 +33,7 @@ cursor = conn.cursor()
 # Rich log
 FORMAT = "%(message)s"
 logging.basicConfig(
-    level="INFO", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+    level="DEBUG", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
 )
 log = logging.getLogger("rich")
 console = Console
@@ -588,7 +588,6 @@ def process_movies():
     for movie_folder in next(os.walk(movie_root))[1]:
         # Search for either a MP4 and MKV movie file with the movie root folder
         movie_root_folder = f"{movie_root}{movie_folder}"
-        log.debug(f"{movie_folder=}")
         try:
             movie_file = (glob.glob(f"{movie_root_folder}/*.mp4") + glob.glob(f"{movie_root_folder}/*.mkv"))[0]
         except IndexError:
