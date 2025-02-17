@@ -20,6 +20,9 @@ This is designed with specific software and hardware requirements:
 # Current Status
 
 ## Last Update:
+### 2025-02-17
+I've taken a step back to give the "playlist" method a final chance to see if it can properly work, however, I found out the hard way that I cannot get it to work exactly how I want.  Same thing with getting commercials to fit using Python's combinations method.  Even though I've tested many things around these 2 concepts, it's just not going to work how I want.  I've reverted and am cleaning up code to get to a v1 state.  More coming soon.
+
 ### 2025-01-21
 Running more tests; this time importing new media and seeing how the Media Manager would handle it.  Other than some basic error handling, everything was perfect.  "Loud!" is showing Artist and Title information (MTV info cards) but still needs some work.  Finally, I have implemented channel changing using "w" and "s" keyboard keys.  This works enough for now.
 
