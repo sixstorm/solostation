@@ -1,4 +1,4 @@
-import MediaManager
+import mediamanager
 import schedule
 import logging
 from datetime import datetime, timedelta
@@ -7,6 +7,8 @@ import sqlite3
 import os
 import mpv
 import re
+import json
+import threading
 from PIL import Image, ImageDraw, ImageFont
 from dotenv import load_dotenv
 from rich.console import Console
@@ -16,9 +18,14 @@ from rich.text import Text
 from rich.progress import Progress
 
 # Rich log
+log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+log_level = getattr(logging, log_level_str, logging.INFO)
 FORMAT = "%(message)s"
 logging.basicConfig(
-    level="DEBUG", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+    level=log_level, 
+    format=FORMAT, 
+    datefmt="[%X]", 
+    handlers=[RichHandler()]
 )
 log = logging.getLogger("rich")
 
@@ -46,6 +53,7 @@ player.fullscreen = True
 
 # Vars
 solo_db = os.getenv("DB_LOCATION")
+channel_file = os.getenv("CHANNEL_FILE")
 
 # Functions
 def import_schedule(channel_number):
@@ -109,24 +117,54 @@ def get_chapter_start_time(filepath, chapter_number):
     cursor2.execute(query)
     result = cursor2.fetchone()
     episode_id = result[0]
-    log.info(f"{episode_id=}")
+    # log.info(f"{episode_id=}")
 
     # Get time after start of current chapter from the database
     query = f"SELECT Start FROM CHAPTERS WHERE EpisodeID = {episode_id} AND Title = {chapter_number}"
     cursor2.execute(query)
     chapter_start = cursor2.fetchone()[0]
-    log.debug(f"{chapter_start=}")
+    # log.debug(f"{chapter_start=}")
 
     conn2.close()
 
     return chapter_start
+
+def update_schedule_check():
+    while True:
+        time.sleep(60)
+        log.debug("Checking for schedule extension updates")
+
+        # Get all channel numbers
+        with open(channel_file, "r") as channel_file_input:
+            channel_data = json.load(channel_file_input)
+        channel_numbers = [channel_data[n]["channel_number"] for n in channel_data]
+
+        # Check schedule to see if there is anything scheduled in the next 6 hours
+        extension_needed = False
+        future_date = datetime.now() + timedelta(hours=14)
+        log.debug(f"{future_date=}")
+
+        for num in channel_numbers:
+            live_schedule = import_schedule(num)
+            last_playing = sorted([s for s in live_schedule if s["channel"] == num], key=lambda x: x["end"], reverse=True)
+
+            if future_date > last_playing[0]["end"]:
+                log.debug(f"Channel {num} needs extended scheduling")
+                extension_needed = True
+            else:
+                log.debug(f"Channel {num} does not need extended scheduling")
+
+        if extension_needed:
+            schedule.create_schedule(extension_needed)
+
+   
 
 @player.on_key_press("w")
 def listen_for_channel_change():
     global current_channel, channel_changed
 
     current_channel += 1
-    if current_channel > 6:
+    if current_channel > 8:
         current_channel = 2
     channel_changed = True
 
@@ -136,17 +174,22 @@ def listen_for_channel_change():
 
     current_channel -= 1
     if current_channel < 2:
-        current_channel = 6
+        current_channel = 8
     channel_changed = True
 
 #############
 # Clear out old scheduled items
-schedule.clear_old_schedule_items()
+# schedule.clear_old_schedule_items()
 log.debug(schedule.check_schedule_for_rebuild())
 
 # If schedule needs to be built, build it
 if schedule.check_schedule_for_rebuild():
-    schedule.create_schedule()
+    extension_needed = False
+    schedule.create_schedule(extension_needed)
+
+log.debug("Starting update thread")
+update_thread = threading.Thread(target=update_schedule_check)
+update_thread.start()
 
 # Channel number to start on
 current_channel = 2
@@ -158,17 +201,20 @@ while True:
     playable = False
 
     # Import schedule
-    schedule = import_schedule(current_channel)
+    live_schedule = import_schedule(current_channel)
 
     # Inner channel loop
     while not channel_changed:
         # Get playing now and playing next
-        playing_now = [s for s in schedule if now >= s["showtime"] and now < s["end"]][0]
-        log.debug(f"{playing_now}")
+        playing_now = [s for s in live_schedule if now >= s["showtime"] and now < s["end"]][0]
+        # log.debug(f"{playing_now}")
+
+        last_playing = sorted([s for s in live_schedule if s["channel"] == current_channel], key=lambda x: x["end"])
+        # log.debug(f"{last_playing}")
 
         try:
-            playing_now_index = schedule.index(playing_now)
-            playing_next = schedule[playing_now_index + 1]
+            playing_now_index = live_schedule.index(playing_now)
+            playing_next = live_schedule[playing_now_index + 1]
         except IndexError:
             playing_next = None
 

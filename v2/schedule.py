@@ -15,14 +15,20 @@ from itertools import combinations
 load_dotenv()
 
 # Rich log
+log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+log_level = getattr(logging, log_level_str, logging.INFO)
 FORMAT = "%(message)s"
 logging.basicConfig(
-    level="DEBUG", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+    level=log_level, 
+    format=FORMAT, 
+    datefmt="[%X]", 
+    handlers=[RichHandler()]
 )
 log = logging.getLogger("rich")
 
 # Variables
 schedule_list = []
+solo_db = os.getenv("DB_LOCATION")
 channel_file = os.getenv("CHANNEL_FILE")
 
 # Functions
@@ -133,6 +139,43 @@ def check_schedule_for_rebuild():
     conn.close()
 
     return rebuild_needed
+
+def get_last_item_in_schedule(channel_number):
+    '''
+    Queries the schedule in the database and returns last item in schedule.
+    All results are converted to a dictionary and returned in a list.
+
+    Args:
+        channel_number (int) - Channel number
+
+    Returns:  
+        last_scheduled_item (list of dictionaries) - Each scheduled item
+        
+    Raises:
+    Example:
+    '''
+
+    # Open Database
+    conn = sqlite3.connect(solo_db)
+    cursor = conn.cursor()
+
+    # Query schedule in database for given channel number 
+    now = datetime.strftime(datetime.now(), "%Y-%m-%d %HH:%MM:%SS")
+    cursor.execute(f"SELECT * FROM TESTSCHEDULE WHERE Channel = '{channel_number}' ORDER BY Showtime DESC")
+
+    # Convert query results to a list of dictionaries
+    last_scheduled_item = [{
+            "channel": row[1],
+            "showtime": datetime.strptime(str(row[2]), "%Y-%m-%d %H:%M:%S"),
+            "end": datetime.strptime(str(row[3]), "%Y-%m-%d %H:%M:%S"),
+            "filepath": row[4],
+            "chapter": row[5],
+            "runtime": row[6]
+    } for row in cursor.fetchall()][0]
+
+    conn.close()
+
+    return last_scheduled_item
 
 def insert_into_schedule(channel_number, showtime, end, filepath, chapter, runtime):
     """
@@ -399,16 +442,16 @@ def schedule_loud(channel_number, marker, channel_end_datetime):
                 all_idents.pop(all_idents.index(all_idents[0]))
 
 
-def schedule_ppv1(channel_number, marker, channel_end_datetime):
-    """ Schedules for the PPV1 Channel """
+def schedule_ppv(channel_number, marker, channel_end_datetime):
+    """ Schedules for the PPV Channels """
 
     # Search database for 'movie' tag and create lists from results
-    table, data = zip(*search_database("movie"))
+    selected_movies = select_weighted_movie(["movie"])
 
     # Select random movie
-    ppv_movie = json.loads(random.choice(data))
-    ppv_movie_runtime = ppv_movie["Runtime"]
-    # log.debug(f"Chose {ppv_movie['Name']}")
+    ppv_movie = selected_movies[0]
+    ppv_movie_filepath = ppv_movie[0]
+    ppv_movie_runtime = ppv_movie[3]
 
     # Calculate movie runtime
     hours, minutes, seconds = map(int, ppv_movie_runtime.split(":"))
@@ -417,7 +460,7 @@ def schedule_ppv1(channel_number, marker, channel_end_datetime):
     # Fill with the movie until the channel end time
     while marker < channel_end_datetime:
         post_marker = marker + movie_runtime_TD
-        insert_into_schedule(channel_number, marker, post_marker, ppv_movie["Filepath"], None, ppv_movie["Runtime"])
+        insert_into_schedule(channel_number, marker, post_marker, ppv_movie_filepath, None, ppv_movie_runtime)
         marker = post_marker + timedelta(seconds=1)
 
 def schedule_bang(channel_number, marker, channel_end_datetime):
@@ -800,12 +843,12 @@ def add_final_filler(next_play_time, time_remaining, channel_number):
     marker = next_play_time
                 
 
-def create_schedule():
+def create_schedule(extension_needed):
     """
     Creates a schedule for all channels
 
     Args:
-        None
+        future_date (datetime): Datetime of 
 
     Returns:
         None
@@ -833,12 +876,19 @@ def create_schedule():
         log.info(f"Working on {channel_name} - {channel_number}")
 
         # Set marker and channel end datetime
-        marker = datetime.now().replace(hour = 0, minute = 0, second = 0, microsecond = 0)
-        channel_end_datetime = marker + timedelta(days = 1)
+        if extension_needed:
+            # Read current schedule, finding the last item played
+            last_scheduled_item = get_last_item_in_schedule(channel_number)
+            lsi_end = last_scheduled_item['end']
+            channel_end_datetime = datetime.now() + timedelta(days = 2, seconds=1)
 
-        # if channel_number != 3:
-        #     continue
-  
+            # Start marker at the end of last scheduled item
+            marker = lsi_end.replace(microsecond = 0)
+        else:
+            # Fresh schedule
+            marker = datetime.now().replace(hour = 0, minute = 0, second = 0, microsecond = 0)
+            channel_end_datetime = marker + timedelta(days = 1, seconds=1)
+
         match channel_number:
             case 3:
                 schedule_loud(channel_number, marker, channel_end_datetime)
@@ -847,10 +897,16 @@ def create_schedule():
                 schedule_motion(channel_number, marker, channel_end_datetime)
                 continue
             case 5:
-                schedule_ppv1(channel_number, marker, channel_end_datetime)
+                schedule_bang(channel_number, marker, channel_end_datetime)
                 continue
             case 6:
-                schedule_bang(channel_number, marker, channel_end_datetime)
+                schedule_ppv(channel_number, marker, channel_end_datetime)
+                continue
+            case 7:
+                schedule_ppv(channel_number, marker, channel_end_datetime)
+                continue
+            case 8:
+                schedule_ppv(channel_number, marker, channel_end_datetime)
                 continue
 
         # Channel2 and other channel processing if there is no function for said channel
@@ -1006,7 +1062,7 @@ def create_schedule():
                 # log.debug(f"Next Play Time: {next_play_time}")
                 post_movie(next_play_time, channel_number)
 
-# clear_schedule_table()
+clear_schedule_table()
 # create_schedule()
 
 

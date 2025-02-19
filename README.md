@@ -2,37 +2,53 @@
 
 > "An exciting, new cable experience!"
 
-SoloStation is a self made, cable TV station that provides yet another purpose to my growing library of TV shows, movies, music videos, and other web content.  
+SoloStation is a self made, cable TV station that provides yet another purpose to my growing library of TV shows, movies, music videos, and other web content.  It's another way to enjoy my content with a side of nostolgia.
 
-Here are the current channels planned to be available:
+Here are the current channels available:
 
-- channel2 - A scheduled mix of all media, including commercials from the 70s-00s.
+- channel2 - A scheduled mix of **all** media, including commercials from the 70s-00s.
 - Loud! - A clone of MTV, including some classic MTV idents and info "cards".
-- BANG - All action movies, no commercials.
-- PPV1 - Classic Pay Per View experience.  One movie, plays back to back all day.
+- BANG - All action movies, all day, no commercials.
+- PPV1-3 - Classic Pay Per View experience.  One movie, plays back to back all day.
 - Motion - A random mix of movies all day, no commercials.
 
 This is designed with specific software and hardware requirements:
 
-- Designed for a Raspberry Pi 4b with a 1080P display (4K is a no go for the Pi).
-- All content must be pre-formatted (more info coming soon).
+- Designed for a Raspberry Pi 4b with the latest Raspbian version installed
+- 1080P display max (4K is a no go for the Pi)
+- All content must be pre-formatted in either MP4 or MKV format (see below)
 
 # Current Status
 
-## Last Update:
-### 2025-02-17
-I've taken a step back to give the "playlist" method a final chance to see if it can properly work, however, I found out the hard way that I cannot get it to work exactly how I want.  Same thing with getting commercials to fit using Python's combinations method.  Even though I've tested many things around these 2 concepts, it's just not going to work how I want.  I've reverted and am cleaning up code to get to a v1 state.  More coming soon.
+## Latest Update:
+### 2025-02-19
+Testing a way to extend the schedule past the next day so that playback can continue "indefinitely".  This may or may not make it to the feature freeze but I thought I would try anyway.
 
-### 2025-01-21
-Running more tests; this time importing new media and seeing how the Media Manager would handle it.  Other than some basic error handling, everything was perfect.  "Loud!" is showing Artist and Title information (MTV info cards) but still needs some work.  Finally, I have implemented channel changing using "w" and "s" keyboard keys.  This works enough for now.
+### 2025-02-18
+Repo has been cleaned up, so everything is now under "v2".  Pay-per-view channels 2 and 3 were added.  Getting close to a feature freeze and then directing my attention over to the hardware side of things, then work on ironing out any bugs or issues.
 
-### 2025-01-15
-Running these scripts over the last few days has shown that everything is running right on time.  However, the transition from one video to another is a bit rough looking.  I'm also testing a new function that will choose commercials differently so that you won't see the same thing twice in a single break.
+# Media Layout/Organization
+For mass storage, I have an EXT4 formatted 2TB SSD connected to the Raspberry Pi; Raspbian auto mounts the drive to /media/USERNAME/usb.  Here is the file/folder org for this drive (don't judge my folder naming too harshly):
 
-### 2025-01-09
-Additional channels have been added and ran through some thorough testing with scheduling; everything appears to be doing exactly as it should.  I will be letting this run throughout the next few days to verify that things are playing as scheduled.  Also, I want to do some work on the admin console (APITest.py) to have a tool that will help me validate playback.
+├── bumpers
+├── database
+├── fonts
+├── movies
+├── music
+├── tv
+├── web
 
-### 2025-01-08
-Playback is currently under testing, which means allowing it to run for most of the day and checking it every hour, making sure things are on schedule.  There are some bugs, but I'm working on them.  Once playback is solid, I'll add the rest of the channels back, work on the MTV info cards, and some other items to get to a "0.1" state.
+## bumpers
+All commercials
 
-Media Management and Scheduling is basically done.  I'm currently re-writing my code to fit better Python practices, while simplifying some of the complicated things.  Most of my focus now is on the main script that plays the schedule, give music information cards on screen at the proper time, etc.  Finally, once all of this is set in stone, I will spend my remaining time adding more content!
+## database 
+A single SQLite3 database
+
+## fonts
+All fonts files
+
+## movies
+Each movie has its own folder in "Title (Year)" format.  For example, "Batman (1989)".
+
+## tv 
+Each series has its own folder in "Series Name (Year)" format; i.e. "Friends (1994)".  Each series has subfolders for each season; i.e. "Season 1".  Finally, each episode is in a specific format for season and episode number; i.e. "S01E01.mp4".
