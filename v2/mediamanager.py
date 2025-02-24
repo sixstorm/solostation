@@ -31,9 +31,14 @@ conn = sqlite3.connect(os.getenv("DB_LOCATION"))
 cursor = conn.cursor()
 
 # Rich log
+log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
+log_level = getattr(logging, log_level_str, logging.INFO)
 FORMAT = "%(message)s"
 logging.basicConfig(
-    level="DEBUG", format=FORMAT, datefmt="[%X]", handlers=[RichHandler()]
+    level=log_level_str, 
+    format=FORMAT, 
+    datefmt="[%X]", 
+    handlers=[RichHandler()]
 )
 log = logging.getLogger("rich")
 console = Console

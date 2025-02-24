@@ -17,20 +17,21 @@ from rich.logging import RichHandler
 from rich.text import Text
 from rich.progress import Progress
 
+# Load env file
+load_dotenv()
+
 # Rich log
 log_level_str = os.getenv("LOG_LEVEL", "INFO").upper()
 log_level = getattr(logging, log_level_str, logging.INFO)
 FORMAT = "%(message)s"
 logging.basicConfig(
-    level=log_level, 
+    level=log_level_str, 
     format=FORMAT, 
     datefmt="[%X]", 
     handlers=[RichHandler()]
 )
 log = logging.getLogger("rich")
 
-# Load env file
-load_dotenv()
 
 # Ensure the socket path does not already exist
 socket_path = "/tmp/mpv_socket"
@@ -189,7 +190,7 @@ if schedule.check_schedule_for_rebuild():
 
 log.debug("Starting update thread")
 update_thread = threading.Thread(target=update_schedule_check)
-update_thread.start()
+# update_thread.start()
 
 # Channel number to start on
 current_channel = 2
@@ -202,6 +203,7 @@ while True:
 
     # Import schedule
     live_schedule = import_schedule(current_channel)
+    log.debug(f"{live_schedule[0]}")
 
     # Inner channel loop
     while not channel_changed:
