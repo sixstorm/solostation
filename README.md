@@ -1,4 +1,4 @@
-# SoloStation
+# SoloStation - v3-classes
 
 > "An exciting, new cable experience!"
 
