@@ -32,8 +32,6 @@ schedule_list = []
 solo_db = os.getenv("DB_LOCATION")
 channel_file = os.getenv("CHANNEL_FILE")
 
-# Classes
-
 # Functions
 def initialize_schedule_db():
     """
@@ -143,43 +141,6 @@ def check_schedule_for_rebuild():
 
     return rebuild_needed
 
-def get_last_item_in_schedule(channel_number):
-    '''
-    Queries the schedule in the database and returns last item in schedule.
-    All results are converted to a dictionary and returned in a list.
-
-    Args:
-        channel_number (int) - Channel number
-
-    Returns:  
-        last_scheduled_item (list of dictionaries) - Each scheduled item
-        
-    Raises:
-    Example:
-    '''
-
-    # Open Database
-    conn = sqlite3.connect(solo_db)
-    cursor = conn.cursor()
-
-    # Query schedule in database for given channel number 
-    now = datetime.strftime(datetime.now(), "%Y-%m-%d %H:%M:%S")
-    cursor.execute(f"SELECT * FROM TESTSCHEDULE WHERE Channel = '{channel_number}' ORDER BY Showtime DESC")
-
-    # Convert query results to a list of dictionaries
-    last_scheduled_item = [{
-            "channel": row[1],
-            "showtime": datetime.strptime(str(row[2]), "%Y-%m-%d %H:%M:%S"),
-            "end": datetime.strptime(str(row[3]), "%Y-%m-%d %H:%M:%S"),
-            "filepath": row[4],
-            "chapter": row[5],
-            "runtime": row[6]
-    } for row in cursor.fetchall()][0]
-
-    conn.close()
-
-    return last_scheduled_item
-
 def insert_into_schedule(channel_number, showtime, end, filepath, chapter, runtime):
     """
     Inserts a single media item into the schedule table
@@ -210,35 +171,6 @@ def insert_into_schedule(channel_number, showtime, end, filepath, chapter, runti
 
     # Commit changes to database
     conn.commit()
-    conn.close()
-
-def check_if_in_table(table, filepath):
-    """
-    Checks to see if a filepath exists in the database given the table
-
-    Args:
-        table (string): Table that needs to be searched
-        filepath (string): Video file
-
-    Returns:
-        Bool - True or False
-
-    Raises:
-
-    Example:
-        check_if_in_table("TV", "movie.mp4")
-    """
-
-    conn = sqlite3.connect(os.getenv("DB_LOCATION"))
-    cursor = conn.cursor()
-    query = f'SELECT * FROM {table} WHERE Filepath="{filepath}"'
-    cursor.execute(query)
-    result = cursor.fetchone()
-    if result:
-        return True
-    else:
-        return False
-
     conn.close()
 
 def search_database(search_term):
@@ -333,6 +265,18 @@ def get_chapters(filepath):
 
 def get_next_tv_playtime(marker, episode_TD):
     """
+    Determine the next available play time and size of episode block
+
+    Args:
+        marker (datetime): Current place in the schedule timeline
+        episode_TD (timedelta): Timedelta of episode runtime
+
+    Returns:
+        episode_block (timedelta)
+        next_play_time (datetime)
+
+    Raises:
+    Example:
     """
 
     # Find next play time depending on episode runtime
@@ -401,6 +345,18 @@ def get_next_movie_playtime(marker):
 
 def add_post_movie(channel_number, marker, next_play_time):
     """
+    Schedules movie trailers and web content after a movie has been played.
+
+    Args:
+        channel_number (integer): Number of current channel
+        marker (datetime): Location of marker
+        next_play_time (datetime): Next available play time for next movie
+
+    Returns:
+        marker (datetime): Location of marker
+
+    Raises:
+    Example:
     """
 
     all_trailers = []
@@ -675,13 +631,13 @@ def schedule_channel2(channel_number, marker, channel_end_datetime, tags):
 
                     # Commercials between chapters
                     if int(chapter_number) < len(chapters):
-                        standard_commercial_break(max_commercial_time, channel_number)
+                        marker = standard_commercial_break(marker, max_commercial_time, channel_number)
                     else:
                         # Commercials post episode
                         log.debug("Final chapter has been played")
 
                         log.debug(f"Filling commercials from {marker} to {next_play_time}")
-                        post_episode(next_play_time, channel_number)
+                        marker = post_episode(marker, next_play_time, channel_number)
             else:
                 # If no chapters are in episode, add episode and fill the rest of the block with commercials
                 post_marker = marker + episode_TD
@@ -694,7 +650,7 @@ def schedule_channel2(channel_number, marker, channel_end_datetime, tags):
 
                 # Commercials post episode
                 log.debug(f"Filling commercials from {marker} to {next_play_time}")
-                post_episode(next_play_time, channel_number)
+                marker = post_episode(marker, next_play_time, channel_number)
         else:
             # Process Movie
             movie_TD = runtime_to_timedelta(media["Runtime"])
@@ -713,7 +669,7 @@ def schedule_channel2(channel_number, marker, channel_end_datetime, tags):
 
             # Fill time with commercials
             log.debug(f"Filling commercials from {marker} to {next_play_time}")
-            post_movie(next_play_time, channel_number)
+            marker = post_movie(marker, next_play_time, channel_number)
 
 def time_str_to_seconds(time_str):
     """ Converts time formatted string to number of seconds  """
@@ -729,12 +685,12 @@ def seconds_to_hms(seconds):
 
 def format_timedelta(seconds):
     """ Converts seconds to hh:mm:ss format. """
-    # delta = timedelta(seconds=seconds)
     hours, remainder = divmod(seconds.total_seconds(), 3600)
     minutes, seconds = divmod(remainder, 60)
     return '{:02}:{:02}:{:02}'.format(int(hours), int(minutes), int(seconds))
 
 def runtime_to_timedelta(runtime):
+    """ Convert runtime (datetime) to timedelta """
     h, m, s = map(int, runtime.split(":"))
     runtime_TD = timedelta(hours=h, minutes=m, seconds=s)
     return runtime_TD
@@ -763,11 +719,12 @@ def get_max_break_time(episode_TD, chapters, episode_block):
     max_break_time = round((total_commercial_time // len(chapters)).total_seconds(), 0)
     return max_break_time
 
-def standard_commercial_break(max_break_time, channel_number):
+def standard_commercial_break(marker, max_break_time, channel_number):
     """
     Creates a commercial break between episode chapters
 
     Args:
+        marker (datetime): Where we are in the current schedule timeline
         max_break_time (timedelta):  Seconds of largest possible commercial break time
         channel_number (integer): Channel number
 
@@ -780,7 +737,6 @@ def standard_commercial_break(max_break_time, channel_number):
     Example:
         post_episode(next_play_time, channel_number)
     """
-    global marker
 
     log.debug(f"Standard commercial break - {max_break_time}")
 
@@ -799,12 +755,15 @@ def standard_commercial_break(max_break_time, channel_number):
         post_marker = marker + comm_TD
         insert_into_schedule(channel_number, marker, post_marker, commercial["Filepath"], None, commercial["Runtime"])
         marker = post_marker  + timedelta(seconds=1)
+    
+    return marker
 
-def post_episode(next_play_time, channel_number):
+def post_episode(marker, next_play_time, channel_number):
     """
     Fills the remaining timeblock with commercials post episode
 
     Args:
+        marker (datetime): Where we are in the current schedule timeline
         next_play_time (datetime):  When next item is to play
         channel_number (integer): Channel number
 
@@ -817,7 +776,6 @@ def post_episode(next_play_time, channel_number):
     Example:
         post_episode(next_play_time, channel_number)
     """
-    global marker
 
     log.debug(f"Post Episode - {marker}")
 
@@ -840,13 +798,16 @@ def post_episode(next_play_time, channel_number):
             marker = post_marker  + timedelta(seconds=1)
     
     # Add final filler
-    add_final_filler(next_play_time, time_remaining, channel_number)
+    marker = add_final_filler(marker, next_play_time, time_remaining, channel_number)
 
-def post_movie(next_play_time, channel_number):
+    return marker
+
+def post_movie(marker, next_play_time, channel_number):
     """
     Fills the remaining timeblock with web content post movie
 
     Args:
+        marker (datetime): Where we are in the current schedule timeline
         next_play_time (datetime):  When next item is to play
         channel_number (integer): Channel number
 
@@ -859,7 +820,6 @@ def post_movie(next_play_time, channel_number):
     Example:
         post_movie(next_play_time, channel_number)
     """
-    global marker
 
     log.debug(f"Post Movie - {marker}")
 
@@ -895,7 +855,8 @@ def post_movie(next_play_time, channel_number):
         marker = post_marker  + timedelta(seconds=1)
 
     # Add final filler
-    add_final_filler(next_play_time, time_remaining, channel_number)
+    marker = add_final_filler(marker, next_play_time, time_remaining, channel_number)
+    return marker
 
 def select_weighted_movie(tags):
     """
@@ -1003,7 +964,7 @@ def select_commercial(max_break):
     selected_commercial = [c for c in all_comms if c["Filepath"] == selected][0]
     return selected_commercial
 
-def add_final_filler(next_play_time, time_remaining, channel_number):
+def add_final_filler(marker, next_play_time, time_remaining, channel_number):
     """
     Adds last filler to a block
 
@@ -1019,14 +980,13 @@ def add_final_filler(next_play_time, time_remaining, channel_number):
         None
 
     Example:
-        add_final_filler(next_play_time, time_remaining, channel_number)
+        add_final_filler(marker, next_play_time, time_remaining, channel_number)
     """
-    global marker
 
     # Add final filler
     # log.debug(f"Final filler with {time_remaining} remaining")
     insert_into_schedule(channel_number, marker, datetime.strftime(next_play_time, "%Y-%m-%d %H:%M:%S"), os.getenv("FILLER_VIDEO"), None, seconds_to_hms(time_remaining.total_seconds()))
-    marker = next_play_time
+    return next_play_time
                 
 
 def create_schedule(extension_needed):
