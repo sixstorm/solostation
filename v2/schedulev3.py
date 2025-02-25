@@ -234,7 +234,7 @@ class DatabaseManager:
                     cursor.execute(query)
                     final_results.extend(cursor.fetchall())
             except sqlite3.Error as e:
-                self.log.debug(f"Failed to search by tag: {e}")
+                self.log.error(f"Failed to search by tag: {e}")
                 return []
         
         return final_results
@@ -421,6 +421,106 @@ class DatabaseManager:
             self.log.error(f"Failed to update last played for {filepath}: {e}")
             raise
 
+class Ch2Scheduler(Scheduler):
+    def __init__(self, channel_number, marker, end_datetime, db_manager, tags):
+        super().__init__(channel_number, marker, end_datetime, db_manager)
+        self.tags = tags
+
+    def get_next_tv_playtime(self, marker, episode_TD):
+        """
+        Determine the next available play time and size of episode block
+
+        Args:
+            marker (datetime): Current place in the schedule timeline
+            episode_TD (timedelta): Timedelta of episode runtime
+
+        Returns:
+            episode_block (timedelta)
+            next_play_time (datetime)
+
+        Raises:
+        Example:
+        """
+
+        # Find next play time depending on episode runtime
+        if episode_TD < timedelta(minutes=30):
+            episode_block = timedelta(minutes=30)
+            if marker.minute < 30:
+                next_play_time = marker.replace(minute=30, second=0, microsecond=0)
+            else:
+                if marker.hour == 23:
+                    next_play_time = marker.replace(day=(marker.day + 1), hour=0, minute=0, second=0, microsecond=0)
+                else:
+                    next_play_time = marker.replace(hour=(marker.hour + 1), minute=0, second=0, microsecond=0)
+        else:
+            episode_block = timedelta(hours=1)
+            if marker.minute < 30:
+                if marker.hour == 23:
+                    next_play_time = marker.replace(day=(marker.day + 1), hour=0, minute=0, second=0, microsecond=0)
+                else:
+                    next_play_time = marker.replace(hour=(marker.hour + 1), minute=0, second=0, microsecond=0)
+                episode_block = timedelta(minutes=30)
+            else:
+                episode_block = timedelta(hours=1)
+                if marker.hour == 23:
+                    next_play_time = marker.replace(day=(marker.day + 1), hour=0, minute=30, second=0, microsecond=0)
+                else:
+                    next_play_time = marker.replace(hour=(marker.hour + 1), minute=30, second=0, microsecond=0)
+
+        return episode_block, next_play_time
+
+    def schedule(self):
+        try:
+            # Get all media with this channel's tags - Sample 75 items
+            all_media = []
+            for tag in self.tags:
+                all_media.extend([json.loads(data) for table, data in db_manager.search_database(tag, self.tags)])
+            random_media = random.sample(all_media, min(75, len(all_media)))
+
+            # Randomly choose and process media
+            while self.marker < self.end_datetime:
+                media = random.choice(random_media)
+                episode_TD = self.runtime_to_timedelta(media["Runtime"])
+                table = "tv" if "tv" in media["Tags"] else "movie"
+                chapters = db_manager.get_chapters(media['Filepath'])
+
+                # Get episode block and next play time
+                episode_block, next_play_time = self.get_next_tv_playtime(marker, episode_TD)
+
+                self.log.info(f"{media['Filepath']} - {self.marker.strftime('%H:%M:%S')}")
+
+                # Process if media contains chapters
+                if chapters:
+                    max_break_time = round(((episode_block - episode_TD) // len(chapters)).total_seconds(), 0)
+
+                    for chapter in chapters:
+                        # Parse chapter metadata
+                        chapter_number, chapter_start, chapter_end = chapter
+                        chapter_start_TD  = self.runtime_to_timedelta(chapter_start)
+                        chapter_end_TD  = self.runtime_to_timedelta(chapter_end)
+                        chapter_duration = chapter_end_TD - chapter_start_TD
+                        
+                        # Insert chapter into schedule
+                        db_manager.insert_into_schedule(self.channel_number, self.marker, (self.marker + chapter_duration), media["Filepath"], chapter_number, media["Runtime"])
+                        self.marker += (chapter_duration + timedelta(seconds=1))
+                        db_manager.update_last_played(table, media["Filepath"])
+
+                        # Insert commercial break
+                        
+                        
+                else:
+                    db_manager.insert_into_schedule(self.channel_number, self.marker, (self.marker + self.runtime_to_timedelta(media["Runtime"])), media["Filepath"], None, media["Runtime"])
+                    self.marker += (self.runtime_to_timedelta(media["Runtime"]) + timedelta(seconds=1))
+                    db_manager.update_last_played(table, media["Filepath"])
+                
+                random_media.pop(random_media.index(media))
+
+        except Exception as e:
+            self.log.error(f"Failed to get random media: {e}")
+            raise
+
+
+
 class LoudScheduler(Scheduler):
     def __init__(self, channel_number, marker, end_datetime, db_manager, tags):
         super().__init__(channel_number, marker, end_datetime, db_manager)
@@ -540,70 +640,81 @@ with open(os.getenv("CHANNEL_FILE"), "r") as f:
 
 marker = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
-# Loud
-loud_channel_data = channel_data["loud"]
-loud_scheduler = LoudScheduler(
-    channel_number = loud_channel_data["channel_number"],
-    marker = marker,
-    end_datetime = marker + timedelta(minutes=60, seconds=1),
-    db_manager = db_manager,
-    tags = loud_channel_data["tags"]
-)
-loud_scheduler.schedule()
-
-# Motion
-motion_channel_data = channel_data["motion"]
-motion_scheduler = MotionScheduler(
-    channel_number = motion_channel_data["channel_number"],
+# Channel 2
+ch2_channel_data = channel_data["channel2"]
+ch2_scheduler = Ch2Scheduler(
+    channel_number = ch2_channel_data["channel_number"],
     marker = marker,
     end_datetime = marker + timedelta(days=1, seconds=1),
     db_manager = db_manager,
-    tags = motion_channel_data["tags"]
+    tags = ch2_channel_data["tags"].split(", ")
 )
-motion_scheduler.schedule()
+ch2_scheduler.schedule()
 
-# Bang
-bang_channel_data = channel_data["bang"]
-bang_scheduler = BangScheduler(
-    channel_number = bang_channel_data["channel_number"],
-    marker = marker,
-    end_datetime = marker + timedelta(days=1, seconds=1),
-    db_manager = db_manager,
-    tags = bang_channel_data["tags"]
-)
-bang_scheduler.schedule()
+# # Loud
+# loud_channel_data = channel_data["loud"]
+# loud_scheduler = LoudScheduler(
+#     channel_number = loud_channel_data["channel_number"],
+#     marker = marker,
+#     end_datetime = marker + timedelta(minutes=60, seconds=1),
+#     db_manager = db_manager,
+#     tags = loud_channel_data["tags"]
+# )
+# loud_scheduler.schedule()
 
-# PPV1
-ppv1_channel_data = channel_data["ppv1"]
-ppv1_scheduler = PPVScheduler(
-    channel_number = ppv1_channel_data["channel_number"],
-    marker = marker,
-    end_datetime = marker + timedelta(days=1, seconds=1),
-    db_manager = db_manager,
-    tags = ppv1_channel_data["tags"]
-)
-ppv1_scheduler.schedule()
+# # Motion
+# motion_channel_data = channel_data["motion"]
+# motion_scheduler = MotionScheduler(
+#     channel_number = motion_channel_data["channel_number"],
+#     marker = marker,
+#     end_datetime = marker + timedelta(days=1, seconds=1),
+#     db_manager = db_manager,
+#     tags = motion_channel_data["tags"]
+# )
+# motion_scheduler.schedule()
 
-# PPV2
-ppv2_channel_data = channel_data["ppv2"]
-ppv2_scheduler = PPVScheduler(
-    channel_number = ppv2_channel_data["channel_number"],
-    marker = marker,
-    end_datetime = marker + timedelta(days=1, seconds=1),
-    db_manager = db_manager,
-    tags = ppv2_channel_data["tags"]
-)
-ppv2_scheduler.schedule()
+# # Bang
+# bang_channel_data = channel_data["bang"]
+# bang_scheduler = BangScheduler(
+#     channel_number = bang_channel_data["channel_number"],
+#     marker = marker,
+#     end_datetime = marker + timedelta(days=1, seconds=1),
+#     db_manager = db_manager,
+#     tags = bang_channel_data["tags"]
+# )
+# bang_scheduler.schedule()
 
-# PPV3
-ppv3_channel_data = channel_data["ppv3"]
-ppv3_scheduler = PPVScheduler(
-    channel_number = ppv3_channel_data["channel_number"],
-    marker = marker,
-    end_datetime = marker + timedelta(days=1, seconds=1),
-    db_manager = db_manager,
-    tags = ppv3_channel_data["tags"]
-)
-ppv3_scheduler.schedule()
+# # PPV1
+# ppv1_channel_data = channel_data["ppv1"]
+# ppv1_scheduler = PPVScheduler(
+#     channel_number = ppv1_channel_data["channel_number"],
+#     marker = marker,
+#     end_datetime = marker + timedelta(days=1, seconds=1),
+#     db_manager = db_manager,
+#     tags = ppv1_channel_data["tags"]
+# )
+# ppv1_scheduler.schedule()
+
+# # PPV2
+# ppv2_channel_data = channel_data["ppv2"]
+# ppv2_scheduler = PPVScheduler(
+#     channel_number = ppv2_channel_data["channel_number"],
+#     marker = marker,
+#     end_datetime = marker + timedelta(days=1, seconds=1),
+#     db_manager = db_manager,
+#     tags = ppv2_channel_data["tags"]
+# )
+# ppv2_scheduler.schedule()
+
+# # PPV3
+# ppv3_channel_data = channel_data["ppv3"]
+# ppv3_scheduler = PPVScheduler(
+#     channel_number = ppv3_channel_data["channel_number"],
+#     marker = marker,
+#     end_datetime = marker + timedelta(days=1, seconds=1),
+#     db_manager = db_manager,
+#     tags = ppv3_channel_data["tags"]
+# )
+# ppv3_scheduler.schedule()
 
 
