@@ -97,6 +97,7 @@ class DatabaseManager:
                 current_time = datetime.now().replace(hour=0,minute=0,second=0,microsecond=0).strftime('%Y-%m-%d %H:%M:%S')
                 query = f"""DELETE FROM TESTSCHEDULE WHERE End > '{current_time}'"""
                 conn.execute(query)
+                self.log.info("Schedule table has been cleared")
         except sqlite3.error as e:
             self.log.error(f"Something went wrong with clearing the schedule table: {e}")
             raise
@@ -166,48 +167,66 @@ class DatabaseManager:
             self.log.debug(f"Failed to insert into schedule: {e}")
             raise
 
-    def search_database(self, tags):
+    def search_database(self, table, tags):
         """
         Searches the Solostation Database based on tags
 
         Args:
             tags (list): List of strings, search keywords/terms
+            table (string): Name of the table on which to search
 
         Returns:
             results (list): List of dictionaries in tuple format
 
         Raises:
         Example:
-            search_database(['action', 'movie'])
+            search_database('movie', ['action', 'movie'])
         """
 
         final_results = []
-        
+
         for tag in tags:
-            query = f"""
-                SELECT 'TV' AS source_table, json_object('ID', ID, 'Name', Name, 'ShowName', ShowName, 'Season', Season, 'Episode', Episode, 'Overview', Overview, 'Tags', Tags, 'Runtime', Runtime, 'Filepath', Filepath, 'LastPlayed', LastPlayed) AS data
-                FROM TV WHERE Tags LIKE '%{tag}%' OR ShowName LIKE '%{tag}%' OR Name LIKE '%{tag}%'
+            if table == "all":
+                query = f"""
+                    SELECT 'TV' AS source_table, json_object('ID', ID, 'Name', Name, 'ShowName', ShowName, 'Season', Season, 'Episode', Episode, 'Overview', Overview, 'Tags', Tags, 'Runtime', Runtime, 'Filepath', Filepath, 'LastPlayed', LastPlayed) AS data
+                    FROM TV WHERE Tags LIKE '%{tag}%' OR ShowName LIKE '%{tag}%' OR Name LIKE '%{tag}%'
 
-                UNION ALL
+                    UNION ALL
 
-                SELECT 'MOVIE' AS source_table, json_object('ID', ID, 'Name', Name, 'Year', Year, 'Overview', Overview, 'Tags', Tags, 'Runtime', Runtime, 'Filepath', Filepath, 'LastPlayed', LastPlayed) AS data
-                FROM MOVIE WHERE Tags LIKE '%{tag}%' OR Name LIKE '%{tag}%' OR Year LIKE '%{tag}%'
+                    SELECT 'MOVIE' AS source_table, json_object('ID', ID, 'Name', Name, 'Year', Year, 'Overview', Overview, 'Tags', Tags, 'Runtime', Runtime, 'Filepath', Filepath, 'LastPlayed', LastPlayed) AS data
+                    FROM MOVIE WHERE Tags LIKE '%{tag}%' OR Name LIKE '%{tag}%' OR Year LIKE '%{tag}%'
 
-                UNION ALL
+                    UNION ALL
 
-                SELECT 'MUSIC' AS source_table, json_object('ID', ID, 'Artist', Artist, 'Title', Title, 'Tags', Tags, 'Runtime', Runtime, 'Filepath', Filepath) AS data
-                FROM MUSIC WHERE Tags LIKE '%{tag}%'
+                    SELECT 'MUSIC' AS source_table, json_object('ID', ID, 'Artist', Artist, 'Title', Title, 'Tags', Tags, 'Runtime', Runtime, 'Filepath', Filepath) AS data
+                    FROM MUSIC WHERE Tags LIKE '%{tag}%'
 
-                UNION ALL
+                    UNION ALL
 
-                SELECT 'WEB' AS source_table, json_object('ID', ID,  'Tags', Tags, 'Runtime', Runtime, 'Filepath', Filepath) AS data
-                FROM WEB WHERE Tags LIKE '%{tag}%'
+                    SELECT 'WEB' AS source_table, json_object('ID', ID,  'Tags', Tags, 'Runtime', Runtime, 'Filepath', Filepath) AS data
+                    FROM WEB WHERE Tags LIKE '%{tag}%'
 
-                UNION ALL
+                    UNION ALL
 
-                SELECT 'COMMERCIALS' AS source_table, json_object('ID', ID,  'Tags', Tags, 'Runtime', Runtime, 'Filepath', Filepath, 'LastPlayed', LastPlayed) AS data
-                FROM COMMERCIALS WHERE Tags LIKE '%{tag}%';
-            """
+                    SELECT 'COMMERCIALS' AS source_table, json_object('ID', ID,  'Tags', Tags, 'Runtime', Runtime, 'Filepath', Filepath, 'LastPlayed', LastPlayed) AS data
+                    FROM COMMERCIALS WHERE Tags LIKE '%{tag}%';
+                """
+            elif table == "tv":
+                query = f""" SELECT 'TV' AS source_table, json_object('ID', ID, 'Name', Name, 'ShowName', ShowName, 'Season', Season, 'Episode', Episode, 'Overview', Overview, 'Tags', Tags, 'Runtime', Runtime, 'Filepath', Filepath, 'LastPlayed', LastPlayed) AS data
+                    FROM TV WHERE Tags LIKE '%{tag}%' OR ShowName LIKE '%{tag}%' OR Name LIKE '%{tag}%' """
+            elif table == "movie":
+                query = f""" SELECT 'MOVIE' AS source_table, json_object('ID', ID, 'Name', Name, 'Year', Year, 'Overview', Overview, 'Tags', Tags, 'Runtime', Runtime, 'Filepath', Filepath, 'LastPlayed', LastPlayed) AS data
+                    FROM MOVIE WHERE Tags LIKE '%{tag}%' OR Name LIKE '%{tag}%' OR Year LIKE '%{tag}%' """
+            elif table == "commercial":
+                query = f""" SELECT 'COMMERCIALS' AS source_table, json_object('ID', ID,  'Tags', Tags, 'Runtime', Runtime, 'Filepath', Filepath, 'LastPlayed', LastPlayed) AS data
+                    FROM COMMERCIALS WHERE Tags LIKE '%{tag}%' """
+            elif table == "web":
+                query = f""" SELECT 'WEB' AS source_table, json_object('ID', ID,  'Tags', Tags, 'Runtime', Runtime, 'Filepath', Filepath) AS data
+                    FROM WEB WHERE Tags LIKE '%{tag}%' """
+            elif table == "music":
+                query = f""" SELECT 'MUSIC' AS source_table, json_object('ID', ID, 'Artist', Artist, 'Title', Title, 'Tags', Tags, 'Runtime', Runtime, 'Filepath', Filepath) AS data
+                    FROM MUSIC WHERE Tags LIKE '%{tag}%' """
+
         
             try:
                 with self._connect() as conn:
@@ -310,6 +329,85 @@ class DatabaseManager:
             self.log.error(f"Failed to select a commercial: {e}")
             return None
 
+    def select_random_movie(self, tags):
+        """ """
+        try:
+            all_movies = [json.loads(data) for table, data in db_manager.search_database("movie", tags)]
+            selected_movie = random.choice(all_movies)
+            self.update_last_played("movie", selected_movie["Filepath"])
+            return selected_movie
+        except Exception as e:
+            self.log.error(f"Could not select a random movie from the database: {e}")
+
+
+    def select_weighted_movie(self, tags):
+        """
+        Selects a movie, filtered by tags, based on the LastPlayed datetime
+
+        Args:
+            tags (list):  Strings of tags in which to search the movie database for
+
+        Returns:
+            selected_movies (list): Sample of 20 movies
+
+        Raises:
+            None
+
+        Example:
+            select_weighted_movie(["movie", "action"])
+        """
+
+        all_movies = []
+        weighted_list = []
+        now = datetime.now()
+
+        all_movies.extend([json.loads(data) for table, data in db_manager.search_database("movie", tags)])
+        for movie in all_movies:
+            if movie["LastPlayed"]:
+                last_played = datetime.strptime(movie["LastPlayed"], "%Y-%m-%d %H:%M:%S")
+                weight = 10000 if not movie["LastPlayed"] else max((now - last_played).total_seconds(), 1)
+                weighted_list.append((movie["Filepath"], weight, movie["LastPlayed"], movie["Runtime"]))
+
+        selected_movie = random.choice(sorted(weighted_list, key=lambda tup: tup[1], reverse=True)[:10])
+        selected_movie = [m for m in all_movies if m["Filepath"] == selected_movie[0]][0]
+        self.update_last_played("movie", selected_movie["Filepath"])
+        return selected_movie
+
+    def select_weighted_movies(self, tags):
+        """
+        Selects movies, filtered by tags, based on the LastPlayed datetime
+
+        Args:
+            tags (list):  Strings of tags in which to search the movie database for
+
+        Returns:
+            selected_movies (list): Sample of 20 movies
+
+        Raises:
+            None
+
+        Example:
+            select_weighted_movies(["movie", "action"])
+        """
+
+        all_movies = []
+        weighted_list = []
+        now = datetime.now()
+
+        all_movies.extend([json.loads(data) for table, data in db_manager.search_database("movie", tags)])
+        for movie in all_movies:
+            if movie["LastPlayed"]:
+                last_played = datetime.strptime(movie["LastPlayed"], "%Y-%m-%d %H:%M:%S")
+                weight = 10000 if not movie["LastPlayed"] else max((now - last_played).total_seconds(), 1)
+                weighted_list.append((movie["Filepath"], weight, movie["LastPlayed"], movie["Runtime"]))
+
+        selected_movies = weighted_list[:25]
+        final_selected_movies = []
+        for sm in selected_movies:
+            final_selected_movies.append([m for m in all_movies if m["Filepath"] == sm[0]][0])
+            self.update_last_played("movie", sm[0])
+        return final_selected_movies
+
     def update_last_played(self, table, filepath):
         """ """
 
@@ -329,7 +427,6 @@ class LoudScheduler(Scheduler):
         self.tags = tags
 
     def schedule(self):
-        self.log.info(f"Starting marker: {marker}")
         random_media_list = self._fetch_music_videos()
         all_idents = self._fetch_music_idents()
 
@@ -352,10 +449,8 @@ class LoudScheduler(Scheduler):
                     all_idents.pop(0)
                 if self.marker > self.end_datetime:
                     break
-        self.log.info(f"Ending marker: {marker}")
 
     def schedule_no_ident(self):
-        self.log.info(f"Starting marker: {marker}")
         random_media_list = self._fetch_music_videos()
 
         while self.marker < self.end_datetime:
@@ -368,28 +463,71 @@ class LoudScheduler(Scheduler):
             self.marker += (self.runtime_to_timedelta(media["Runtime"]) + timedelta(seconds=1))
             random_media_list.pop(random_media_list.index(media))
 
-        self.log.info(f"Ending marker: {marker}")
-
     def _fetch_music_videos(self):
         """ Fetch all music videos """
-        all_music_videos = []
-        all_music_videos.extend([json.loads(data) for table, data in db_manager.search_database("music") if "music" in json.loads(data)["Filepath"]])
-        random.shuffle(all_music_videos)
-        return all_music_videos
+        try:
+            all_music_videos = []
+            all_music_videos.extend([json.loads(data) for table, data in db_manager.search_database("music", "music") if "music" in json.loads(data)["Filepath"]])
+            random.shuffle(all_music_videos)
+            return all_music_videos
+        except Exception as e:
+            self.log.error(f"Error in fetching music videos: {e}")
 
     def _fetch_music_idents(self):
         """ Fetch all MTV idents """
-        all_idents = []
-        all_idents.extend([json.loads(data) for table, data in db_manager.search_database("ident") if "idents" in json.loads(data)["Filepath"]])
-        random.shuffle(all_idents)
-        return all_idents
+        try:
+            all_idents = []
+            all_idents.extend([json.loads(data) for table, data in db_manager.search_database("music", "ident") if "idents" in json.loads(data)["Filepath"]])
+            random.shuffle(all_idents)
+            return all_idents
+        except Exception as e:
+            self.log.error(f"Error in fetching MTV idents: {e}")
 
-class PPV1_Scheduler(Scheduler):
+class BangScheduler(Scheduler):
     def __init__(self, channel_number, marker, end_datetime, db_manager, tags):
         super().__init__(channel_number, marker, end_datetime, db_manager)
         self.tags = tags
 
     def schedule(self):
+        selected_movies = db_manager.select_weighted_movies(self.tags)
+        random.shuffle(selected_movies)
+        for movie in selected_movies:
+            self.log.info(f"{movie['Filepath']} - {self.marker.strftime('%H:%M:%S')}")
+            db_manager.insert_into_schedule(self.channel_number, self.marker, (self.marker + self.runtime_to_timedelta(movie["Runtime"])), movie["Filepath"], None, movie["Runtime"])
+            self.marker += (self.runtime_to_timedelta(movie["Runtime"]) + timedelta(seconds=1))
+            
+            if self.marker > self.end_datetime:
+                break
+
+class MotionScheduler(Scheduler):
+    def __init__(self, channel_number, marker, end_datetime, db_manager, tags):
+        super().__init__(channel_number, marker, end_datetime, db_manager)
+        self.tags = tags
+
+    def schedule(self):
+        selected_movies = db_manager.select_weighted_movies(self.tags)
+        random.shuffle(selected_movies)
+        for movie in selected_movies:
+            self.log.info(f"{movie['Filepath']} - {self.marker.strftime('%H:%M:%S')}")
+            db_manager.insert_into_schedule(self.channel_number, self.marker, (self.marker + self.runtime_to_timedelta(movie["Runtime"])), movie["Filepath"], None, movie["Runtime"])
+            self.marker += (self.runtime_to_timedelta(movie["Runtime"]) + timedelta(seconds=1))
+            
+            if self.marker > self.end_datetime:
+                break
+
+class PPVScheduler(Scheduler):
+    def __init__(self, channel_number, marker, end_datetime, db_manager, tags):
+        super().__init__(channel_number, marker, end_datetime, db_manager)
+        self.tags = tags
+
+    def schedule(self):
+        # ppv_movie = db_manager.select_weighted_movie(self.tags)
+        ppv_movie = db_manager.select_random_movie(self.tags)
+        self.log.debug(f"{ppv_movie}")
+        while self.marker < self.end_datetime:
+            self.log.info(f"{ppv_movie['Filepath']} - {self.marker.strftime('%H:%M:%S')}")
+            db_manager.insert_into_schedule(self.channel_number, self.marker, (self.marker + self.runtime_to_timedelta(ppv_movie["Runtime"])), ppv_movie["Filepath"], None, ppv_movie["Runtime"])
+            self.marker += (self.runtime_to_timedelta(ppv_movie["Runtime"]) + timedelta(seconds=1))
         
     
 
@@ -400,9 +538,10 @@ db_manager.clear_schedule_table()
 with open(os.getenv("CHANNEL_FILE"), "r") as f:
     channel_data = json.load(f)
 
-loud_channel_data = channel_data["loud"]
 marker = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
 
+# Loud
+loud_channel_data = channel_data["loud"]
 loud_scheduler = LoudScheduler(
     channel_number = loud_channel_data["channel_number"],
     marker = marker,
@@ -410,7 +549,61 @@ loud_scheduler = LoudScheduler(
     db_manager = db_manager,
     tags = loud_channel_data["tags"]
 )
-
 loud_scheduler.schedule()
+
+# Motion
+motion_channel_data = channel_data["motion"]
+motion_scheduler = MotionScheduler(
+    channel_number = motion_channel_data["channel_number"],
+    marker = marker,
+    end_datetime = marker + timedelta(days=1, seconds=1),
+    db_manager = db_manager,
+    tags = motion_channel_data["tags"]
+)
+motion_scheduler.schedule()
+
+# Bang
+bang_channel_data = channel_data["bang"]
+bang_scheduler = BangScheduler(
+    channel_number = bang_channel_data["channel_number"],
+    marker = marker,
+    end_datetime = marker + timedelta(days=1, seconds=1),
+    db_manager = db_manager,
+    tags = bang_channel_data["tags"]
+)
+bang_scheduler.schedule()
+
+# PPV1
+ppv1_channel_data = channel_data["ppv1"]
+ppv1_scheduler = PPVScheduler(
+    channel_number = ppv1_channel_data["channel_number"],
+    marker = marker,
+    end_datetime = marker + timedelta(days=1, seconds=1),
+    db_manager = db_manager,
+    tags = ppv1_channel_data["tags"]
+)
+ppv1_scheduler.schedule()
+
+# PPV2
+ppv2_channel_data = channel_data["ppv2"]
+ppv2_scheduler = PPVScheduler(
+    channel_number = ppv2_channel_data["channel_number"],
+    marker = marker,
+    end_datetime = marker + timedelta(days=1, seconds=1),
+    db_manager = db_manager,
+    tags = ppv2_channel_data["tags"]
+)
+ppv2_scheduler.schedule()
+
+# PPV3
+ppv3_channel_data = channel_data["ppv3"]
+ppv3_scheduler = PPVScheduler(
+    channel_number = ppv3_channel_data["channel_number"],
+    marker = marker,
+    end_datetime = marker + timedelta(days=1, seconds=1),
+    db_manager = db_manager,
+    tags = ppv3_channel_data["tags"]
+)
+ppv3_scheduler.schedule()
 
 
