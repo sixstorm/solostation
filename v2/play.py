@@ -1,5 +1,5 @@
 import mediamanager
-import schedule
+import schedulev3
 import logging
 from datetime import datetime, timedelta
 import time
@@ -14,8 +14,6 @@ from dotenv import load_dotenv
 from rich.console import Console
 from rich.table import Table
 from rich.logging import RichHandler
-from rich.text import Text
-from rich.progress import Progress
 
 # Load env file
 load_dotenv()
@@ -56,6 +54,12 @@ player.fullscreen = True
 solo_db = os.getenv("DB_LOCATION")
 channel_file = os.getenv("CHANNEL_FILE")
 
+# class DatabaseManager:
+#     def __init__(self, db_path):
+#         load_dotenv()
+#         self.db_path = db_path or os.getenv("DB_LOCATION")
+        
+
 # Functions
 def import_schedule(channel_number):
     '''
@@ -78,7 +82,7 @@ def import_schedule(channel_number):
 
     # Query schedule in database for given channel number 
     now = datetime.strftime(datetime.now(), "%Y-%m-%d %HH:%MM:%SS")
-    cursor.execute(f"SELECT * FROM TESTSCHEDULE WHERE Channel = '{channel_number}' ORDER BY Showtime ASC")
+    cursor.execute(f"SELECT * FROM SCHEDULE WHERE Channel = '{channel_number}' ORDER BY Showtime ASC")
 
     # Convert query results to a list of dictionaries
     all_scheduled_items = [{
@@ -130,36 +134,6 @@ def get_chapter_start_time(filepath, chapter_number):
 
     return chapter_start
 
-def update_schedule_check():
-    while True:
-        time.sleep(60)
-        log.debug("Checking for schedule extension updates")
-
-        # Get all channel numbers
-        with open(channel_file, "r") as channel_file_input:
-            channel_data = json.load(channel_file_input)
-        channel_numbers = [channel_data[n]["channel_number"] for n in channel_data]
-
-        # Check schedule to see if there is anything scheduled in the next 6 hours
-        extension_needed = False
-        future_date = datetime.now() + timedelta(hours=14)
-        log.debug(f"{future_date=}")
-
-        for num in channel_numbers:
-            live_schedule = import_schedule(num)
-            last_playing = sorted([s for s in live_schedule if s["channel"] == num], key=lambda x: x["end"], reverse=True)
-
-            if future_date > last_playing[0]["end"]:
-                log.debug(f"Channel {num} needs extended scheduling")
-                extension_needed = True
-            else:
-                log.debug(f"Channel {num} does not need extended scheduling")
-
-        if extension_needed:
-            schedule.create_schedule(extension_needed)
-
-   
-
 @player.on_key_press("w")
 def listen_for_channel_change():
     global current_channel, channel_changed
@@ -179,21 +153,14 @@ def listen_for_channel_change():
     channel_changed = True
 
 #############
-# Clear out old scheduled items
-# schedule.clear_old_schedule_items()
-log.debug(schedule.check_schedule_for_rebuild())
 
 # If schedule needs to be built, build it
-if schedule.check_schedule_for_rebuild():
-    extension_needed = False
-    schedule.create_schedule(extension_needed)
-
-log.debug("Starting update thread")
-update_thread = threading.Thread(target=update_schedule_check)
-# update_thread.start()
+if schedulev3.db_manager.check_schedule_for_rebuild(os.getenv("CHANNEL_FILE")):
+    schedulev3.db_manager.clear_schedule_table()
+    schedulev3.create_schedule()
 
 # Channel number to start on
-current_channel = 2
+current_channel = 3
 
 # Main loop
 while True:
@@ -203,25 +170,24 @@ while True:
 
     # Import schedule
     live_schedule = import_schedule(current_channel)
-    log.debug(f"{live_schedule[0]}")
 
     # Inner channel loop
     while not channel_changed:
         # Get playing now and playing next
-        playing_now = [s for s in live_schedule if now >= s["showtime"] and now < s["end"]][0]
-        # log.debug(f"{playing_now}")
-
-        last_playing = sorted([s for s in live_schedule if s["channel"] == current_channel], key=lambda x: x["end"])
-        # log.debug(f"{last_playing}")
-
         try:
+            playing_now = [s for s in live_schedule if now >= s["showtime"] and now < s["end"]][0]
+            log.info(f"{playing_now}")
             playing_now_index = live_schedule.index(playing_now)
             playing_next = live_schedule[playing_now_index + 1]
+            log.info(f"{playing_next}")
         except IndexError:
             playing_next = None
 
         # Start playback
-        player.play(playing_now["filepath"])
+        try:
+            player.play(playing_now["filepath"])
+        except Exception as e:
+            log.error(f"Playback error: {e}")
 
         # Wait until duration and seekable properties are ready, signaling that the file is properly loaded
         while not playable:
