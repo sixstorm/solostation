@@ -600,11 +600,11 @@ class Ch2Scheduler(Scheduler):
                 episode_block, next_play_time = self.get_next_tv_playtime(episode_TD)
                 if table == "tv":
                     episode_block, next_play_time = self.get_next_tv_playtime(episode_TD)
-                    self.log.info(f"Next TV Play Time: {next_play_time}")
+                    self.log.debug(f"Next TV Play Time: {next_play_time}")
                 if table == "movie":
                     # next_play_time = self.get_next_movie_playtime(episode_TD)
                     next_play_time = self.get_next_playtime(episode_TD)
-                    self.log.info(f"Next Movie Play Time: {next_play_time}")
+                    self.log.debug(f"Next Movie Play Time: {next_play_time}")
 
 
                 # Process if media contains chapters
@@ -621,7 +621,7 @@ class Ch2Scheduler(Scheduler):
                         # Insert chapter into schedule
                         db_manager.insert_into_schedule(self.channel_number, self.marker, (self.marker + chapter_duration), media["Filepath"], chapter_number, media["Runtime"])
                         self.marker += (chapter_duration + timedelta(seconds=1))
-                        self.log.info(f"Chapter added: {self.marker}")
+                        self.log.debug(f"Chapter added: {self.marker}")
                         db_manager.update_last_played(table, media["Filepath"])
 
                         # Insert commercial break
@@ -663,7 +663,7 @@ class Ch2Scheduler(Scheduler):
             post_episode(next_play_time, channel_number)
         """
 
-        self.log.info(f"Entering standard commercial break")
+        self.log.debug(f"Entering standard commercial break")
         try:
             while max_break_time > timedelta(seconds=14):
                 commercial = db_manager.select_commercial(max_break_time)
@@ -711,14 +711,14 @@ class Ch2Scheduler(Scheduler):
     def _add_post_movie(self, next_play_time):
         """ Add web content until next play time """
 
-        self.log.info("Adding post movie")
+        self.log.debug("Adding post movie")
         try:
             while self.marker < (next_play_time - timedelta(minutes=3)):
                 try:
                     media = db_manager.select_web_content(next_play_time - self.marker)[0]
                     m_id, table, runtime, filepath = media
                     media_TD = self.runtime_to_timedelta(runtime)
-                    self.log.info(f"Chose web - {filepath}-{runtime}")
+                    self.log.debug(f"Chose web - {filepath}-{runtime}")
                     db_manager.insert_into_schedule(self.channel_number, self.marker, (self.marker + media_TD), filepath, None, runtime)
                     self.marker += (media_TD + timedelta(seconds=1))
                 except IndexError as e:
@@ -731,7 +731,7 @@ class Ch2Scheduler(Scheduler):
     def _add_filler(self, next_play_time):
         """ """
 
-        self.log.info(f"Adding final filler from {self.marker.strftime('%H:%M:%S')} until {next_play_time.strftime('%H:%M:%S')}")
+        self.log.debug(f"Adding final filler from {self.marker.strftime('%H:%M:%S')} until {next_play_time.strftime('%H:%M:%S')}")
         try:
             time_remaining = self.seconds_to_hms((next_play_time - self.marker).total_seconds())
             db_manager.insert_into_schedule(self.channel_number, self.marker, next_play_time, os.getenv("FILLER_VIDEO"), None, time_remaining)
@@ -771,19 +771,6 @@ class LoudScheduler(Scheduler):
                     all_idents.pop(0)
                 if self.marker > self.end_datetime:
                     break
-
-    def schedule_no_ident(self):
-        random_media_list = self._fetch_music_videos()
-
-        while self.marker < self.end_datetime:
-            if not random_media_list:
-                random_media_list = self._fetch_music_videos()
-
-            media = random.choice(random_media_list)
-            self.log.info(f"{media['Filepath']} - {self.marker.strftime('%H:%M:%S')}")
-            db_manager.insert_into_schedule(self.channel_number, self.marker, (self.marker + self.runtime_to_timedelta(media["Runtime"])), media["Filepath"], None, media["Runtime"])
-            self.marker += (self.runtime_to_timedelta(media["Runtime"]) + timedelta(seconds=1))
-            random_media_list.pop(random_media_list.index(media))
 
     def _fetch_music_videos(self):
         """ Fetch all music videos """

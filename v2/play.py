@@ -134,6 +134,38 @@ def get_chapter_start_time(filepath, chapter_number):
 
     return chapter_start
 
+def get_music_info(filepath):
+    conn = sqlite3.connect(os.getenv("DB_LOCATION"))
+    cursor = conn.cursor()
+    query = "SELECT Artist, Title FROM MUSIC WHERE Filepath = ?"
+    cursor.execute(query, (filepath,))
+    result = cursor.fetchone()
+    conn.close()
+    if result:
+        return result[0], result[1]
+    return "Unknown Artist", "Unknown Title"
+
+def update_osd_text(player, text, font_name="Arial"):
+    '''
+    Updates the OSD overlay with the given text at 50% opacity, bottom-left, with a specified font.
+
+    Args:
+        player (mpv.MPV) - MPV player instance
+        text (str) - Text to display
+        font_name (str) - Name of the font to use (default: "Arial")
+    '''
+    overlay_id = 0
+    # ASS formatting: bottom-left (\an1), font size 20 (\fs20), bold (\b1), 50% opacity (\alpha&H80&)
+    # 75% = (\alpha&H117&)
+    ass_text = "{\\an1\\fs30\\b1\\alpha&H80&\\fn" + font_name + "}" + text.replace("\\", "\\\\")
+    try:
+        player.command("osd-overlay", overlay_id, "ass-events", ass_text)
+        log.debug(f"OSD updated with: {text} using font: {font_name}")
+    except mpv.MPVError as e:
+        log.error(f"MPV OSD error: {e} - Command: osd-overlay {overlay_id} ass-events {ass_text}")
+        raise
+
+
 @player.on_key_press("w")
 def listen_for_channel_change():
     global current_channel, channel_changed
@@ -142,6 +174,7 @@ def listen_for_channel_change():
     if current_channel > 8:
         current_channel = 2
     channel_changed = True
+    player.command("osd-overlay", 0, "none", "")
 
 @player.on_key_press("s")
 def listen_for_channel_change():
@@ -151,6 +184,7 @@ def listen_for_channel_change():
     if current_channel < 2:
         current_channel = 8
     channel_changed = True
+    player.command("osd-overlay", 0, "none", "")
 
 #############
 
@@ -188,6 +222,16 @@ while True:
             player.play(playing_now["filepath"])
         except Exception as e:
             log.error(f"Playback error: {e}")
+
+        # Update OSD text for Channel 3 (music videos)
+        if current_channel == 3 and "idents" not in playing_now["filepath"]:
+            artist, title = get_music_info(playing_now["filepath"])
+            osd_text = f"{artist} | {title}"
+            update_osd_text(player, osd_text, font_name="Kabel Black")
+        else:
+            # Clear OSD when not on Channel 3
+            player.command("osd-overlay", 0, "none", "")
+
 
         # Wait until duration and seekable properties are ready, signaling that the file is properly loaded
         while not playable:
