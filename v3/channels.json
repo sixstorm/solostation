@@ -1,0 +1,38 @@
+{
+    "channel2": {
+      "channel_number": 2,
+      "commercials": "true",
+      "tags": "tv, movie"
+    },
+    "loud": {
+      "channel_number": 3,
+      "commercials": "false",
+      "tags": "music"
+    },
+    "motion": {
+      "channel_number": 4,
+      "commercials": "false",
+      "tags": "movie"
+    },
+    "bang": {
+      "channel_number": 5,
+      "commercials": "false",
+      "tags": "action, movie"
+    },
+    "ppv1": {
+      "channel_number": 6,
+      "commercials": "false",
+      "tags": "movie"
+    },
+    "ppv2": {
+      "channel_number": 7,
+      "commercials": "false",
+      "tags": "movie"
+    },
+    "ppv3": {
+      "channel_number": 8,
+      "commercials": "false",
+      "tags": "movie"
+    }
+  }
+  
