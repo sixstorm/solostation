@@ -1,4 +1,4 @@
-import mediamanager
+# import mediamanager
 import schedule
 import logging
 from datetime import datetime, timedelta
@@ -55,6 +55,7 @@ player.fullscreen = True
 # Vars
 solo_db = os.getenv("DB_LOCATION")
 channel_file = os.getenv("CHANNEL_FILE")
+settings_file = os.getenv("SETTINGS_FILE")
 
 # Functions
 def import_schedule(channel_number):
@@ -78,7 +79,7 @@ def import_schedule(channel_number):
 
     # Query schedule in database for given channel number 
     now = datetime.strftime(datetime.now(), "%Y-%m-%d %HH:%MM:%SS")
-    cursor.execute(f"SELECT * FROM TESTSCHEDULE WHERE Channel = '{channel_number}' ORDER BY Showtime ASC")
+    cursor.execute(f"SELECT * FROM SCHEDULE WHERE Channel = '{channel_number}' ORDER BY Showtime ASC")
 
     # Convert query results to a list of dictionaries
     all_scheduled_items = [{
@@ -130,35 +131,58 @@ def get_chapter_start_time(filepath, chapter_number):
 
     return chapter_start
 
-def update_schedule_check():
-    while True:
-        time.sleep(60)
-        log.debug("Checking for schedule extension updates")
+def get_music_info(filepath):
+    conn = sqlite3.connect(os.getenv("DB_LOCATION"))
+    cursor = conn.cursor()
+    query = "SELECT Artist, Title FROM MUSIC WHERE Filepath = ?"
+    cursor.execute(query, (filepath,))
+    result = cursor.fetchone()
+    conn.close()
+    if result:
+        return result[0], result[1]
+    return "Unknown Artist", "Unknown Title"
 
-        # Get all channel numbers
-        with open(channel_file, "r") as channel_file_input:
-            channel_data = json.load(channel_file_input)
-        channel_numbers = [channel_data[n]["channel_number"] for n in channel_data]
+def update_osd_text(player, text, font_name="Arial"):
+    '''
+    Updates the OSD overlay with the given text at 50% opacity, bottom-left, with a specified font.
 
-        # Check schedule to see if there is anything scheduled in the next 6 hours
-        extension_needed = False
-        future_date = datetime.now() + timedelta(hours=14)
-        log.debug(f"{future_date=}")
+    Args:
+        player (mpv.MPV) - MPV player instance
+        text (str) - Text to display
+        font_name (str) - Name of the font to use (default: "Arial")
+    '''
+    overlay_id = 0
+    # ASS formatting: bottom-left (\an1), font size 20 (\fs20), bold (\b1), 50% opacity (\alpha&H80&)
+    # 75% = (\alpha&H117&)
+    ass_text = "{\\an1\\fs30\\b1\\alpha&H80&\\fn" + font_name + "}" + text.replace("\\", "\\\\")
+    try:
+        player.command("osd-overlay", overlay_id, "ass-events", ass_text)
+        log.debug(f"OSD updated with: {text} using font: {font_name}")
+    except mpv.MPVError as e:
+        log.error(f"MPV OSD error: {e} - Command: osd-overlay {overlay_id} ass-events {ass_text}")
+        raise
 
-        for num in channel_numbers:
-            live_schedule = import_schedule(num)
-            last_playing = sorted([s for s in live_schedule if s["channel"] == num], key=lambda x: x["end"], reverse=True)
+def clear_osd_text():
+    player.command("osd-overlay", 0, "none", "")
 
-            if future_date > last_playing[0]["end"]:
-                log.debug(f"Channel {num} needs extended scheduling")
-                extension_needed = True
-            else:
-                log.debug(f"Channel {num} does not need extended scheduling")
+def load_last_channel(default_channel=2):
+    try:
+        if os.path.exists(settings_file):
+            with open(settings_file, "r") as f:
+                data = json.load(f)
+                return data.get("last_channel", default_channel)
+        return default_channel
+    except Exception as e:
+        log.error(f"Failed to load last channel: {e}")
+        return default_channel
 
-        if extension_needed:
-            schedule.create_schedule(extension_needed)
-
-   
+def save_last_channel(channel):
+    try:
+        with open(settings_file, "w") as f:
+            json.dump({"last_channel": channel}, f)
+        log.debug(f"Saved last channel: {channel}")
+    except Exception as e:
+        log.error(f"Failed to save last channel: {e}")
 
 @player.on_key_press("w")
 def listen_for_channel_change():
@@ -168,6 +192,8 @@ def listen_for_channel_change():
     if current_channel > 8:
         current_channel = 2
     channel_changed = True
+    save_last_channel(current_channel)
+    clear_osd_text()
 
 @player.on_key_press("s")
 def listen_for_channel_change():
@@ -177,6 +203,8 @@ def listen_for_channel_change():
     if current_channel < 2:
         current_channel = 8
     channel_changed = True
+    save_last_channel(current_channel)
+    clear_osd_text()
 
 #############
 # Clear out old scheduled items
@@ -185,15 +213,11 @@ log.debug(schedule.check_schedule_for_rebuild())
 
 # If schedule needs to be built, build it
 if schedule.check_schedule_for_rebuild():
-    extension_needed = False
-    schedule.create_schedule(extension_needed)
-
-log.debug("Starting update thread")
-update_thread = threading.Thread(target=update_schedule_check)
-# update_thread.start()
+    schedule.clear_schedule_table()
+    schedule.create_schedule()
 
 # Channel number to start on
-current_channel = 2
+current_channel = load_last_channel()
 
 # Main loop
 while True:
@@ -202,26 +226,37 @@ while True:
     playable = False
 
     # Import schedule
-    live_schedule = import_schedule(current_channel)
-    log.debug(f"{live_schedule[0]}")
+    try:
+        live_schedule = import_schedule(current_channel)
+    except Exception as e:
+        log.debug(f"Schedule failed to be imported: {e}")
 
     # Inner channel loop
     while not channel_changed:
         # Get playing now and playing next
-        playing_now = [s for s in live_schedule if now >= s["showtime"] and now < s["end"]][0]
-        # log.debug(f"{playing_now}")
-
-        last_playing = sorted([s for s in live_schedule if s["channel"] == current_channel], key=lambda x: x["end"])
-        # log.debug(f"{last_playing}")
+        log.info(f"Looking for playing now on channel {current_channel}")
+        try:
+            playing_now = [s for s in live_schedule if now >= s["showtime"] and now < s["end"]][0]
+            playing_now_index = live_schedule.index(playing_now)
+        except IndexError as e:
+            time.sleep(1)
+            continue
 
         try:
-            playing_now_index = live_schedule.index(playing_now)
             playing_next = live_schedule[playing_now_index + 1]
         except IndexError:
             playing_next = None
 
         # Start playback
         player.play(playing_now["filepath"])
+
+        # Music Video OSD Text
+        if current_channel == 3 and "idents" not in playing_now["filepath"]:
+            artist, title = get_music_info(playing_now["filepath"])
+            osd_text = f"{artist} | {title}"
+            update_osd_text(player, osd_text, font_name="Kabel Black")
+        else:
+            player.command("osd-overlay", 0, "none", "")
 
         # Wait until duration and seekable properties are ready, signaling that the file is properly loaded
         while not playable:

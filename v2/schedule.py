@@ -48,7 +48,7 @@ def initialize_schedule_db():
     cursor = conn.cursor()
 
     log.debug("Initializing Schedule database")
-    table = """ CREATE TABLE IF NOT EXISTS TESTSCHEDULE(
+    table = """ CREATE TABLE IF NOT EXISTS SCHEDULE(
         ID INTEGER PRIMARY KEY AUTOINCREMENT,
         Channel INTEGER,
         Showtime TEXT,
@@ -74,7 +74,7 @@ def clear_schedule_table():
 
     conn = sqlite3.connect(os.getenv("DB_LOCATION"))
     cursor = conn.cursor()
-    cursor.execute("DELETE FROM TESTSCHEDULE")
+    cursor.execute("DELETE FROM SCHEDULE")
     conn.commit()
     conn.close()
 
@@ -94,7 +94,7 @@ def clear_old_schedule_items():
     cursor = conn.cursor()
 
     current_time = (datetime.now() - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S')
-    query = f"""DELETE FROM TESTSCHEDULE WHERE End < '{current_time}'"""
+    query = f"""DELETE FROM SCHEDULE WHERE End < '{current_time}'"""
     cursor.execute(query)
     conn.commit()
     conn.close()
@@ -131,7 +131,7 @@ def check_schedule_for_rebuild():
         # channel_number = int(channel_data[channel]["channel_number"])
         channel_number = channel_data[channel]["channel_number"]
 
-        cursor.execute(f"SELECT COUNT(*) FROM TESTSCHEDULE WHERE end > '{now}' AND Channel = {channel_number}")
+        cursor.execute(f"SELECT COUNT(*) FROM SCHEDULE WHERE end > '{now}' AND Channel = {channel_number}")
         results = cursor.fetchone()[0]
         if results == 0:
             rebuild_needed = True
@@ -165,7 +165,7 @@ def insert_into_schedule(channel_number, showtime, end, filepath, chapter, runti
     conn = sqlite3.connect(os.getenv("DB_LOCATION"))
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO TESTSCHEDULE (Channel, Showtime, End, Filepath, Chapter, Runtime) VALUES (?, ?, ?, ?, ?, ?)",
+        "INSERT INTO SCHEDULE (Channel, Showtime, End, Filepath, Chapter, Runtime) VALUES (?, ?, ?, ?, ?, ?)",
         (channel_number, showtime, end, filepath, chapter, runtime),
     )
 
@@ -989,12 +989,11 @@ def add_final_filler(marker, next_play_time, time_remaining, channel_number):
     return next_play_time
                 
 
-def create_schedule(extension_needed):
+def create_schedule():
     """
     Creates a schedule for all channels
 
     Args:
-        future_date (datetime): Datetime of 
 
     Returns:
         None
@@ -1022,18 +1021,8 @@ def create_schedule(extension_needed):
         log.info(f"Working on {channel_name} - {channel_number}")
 
         # Set marker and channel end datetime
-        if extension_needed:
-            # Read current schedule, finding the last item played
-            last_scheduled_item = get_last_item_in_schedule(channel_number)
-            lsi_end = last_scheduled_item['end']
-            channel_end_datetime = datetime.now() + timedelta(days = 2, seconds=1)
-
-            # Start marker at the end of last scheduled item
-            marker = lsi_end.replace(microsecond = 0)
-        else:
-            # Fresh schedule
-            marker = datetime.now().replace(hour = 0, minute = 0, second = 0, microsecond = 0)
-            channel_end_datetime = marker + timedelta(days = 1, seconds=1)
+        marker = datetime.now().replace(hour = 0, minute = 0, second = 0, microsecond = 0)
+        channel_end_datetime = marker + timedelta(days = 1, seconds=1)
 
         match channel_number:
             case 2:
@@ -1058,134 +1047,7 @@ def create_schedule(extension_needed):
                 schedule_ppv(channel_number, marker, channel_end_datetime)
                 continue
 
-        # Channel2 and other channel processing if there is no function for said channel
-
-        # # Collect all media by channel tags
-        # channel_media = []
-        # for tag in channel_tags:
-        #     results = search_database(tag)
-        #     for r in results:
-        #         # Unpack tuple, convert string to dictionary, and append to list
-        #         table, data = r
-        #         channel_media.append(json.loads(data))
-
-        # # Sample 75 items from tag search
-        # random_media_list = list(random.sample(channel_media, 75))
-
-        # # Collect all commercials
-        # all_commercials = []
-        
-        # # Start building the schedule by marker
-        # while marker < channel_end_datetime:
-        #     # Rebuild sample if random_media_list is empty
-        #     if len(random_media_list) == 0:
-        #         random_media_list = list(random.sample(channel_media, 75))
-            
-        #     # Rebuild all_commercials if empty
-        #     if len(all_commercials) == 0:
-        #         for r in search_database("commercial"):
-        #             table, data = r
-        #             all_commercials.append(json.loads(data))
-
-        #     # Select random media object
-        #     media = random.choice(random_media_list)
-        #     log.debug(f"{media['Filepath']} - {marker.hour:02}:{marker.minute:02}:{marker.second:02}")
-
-        #     # Process episodes
-        #     if 'tv' in media["Filepath"]:
-        #         # Calculate episode timedelta
-        #         episode_h, episode_m, episode_s = map(int, media["Runtime"].split(":"))
-        #         episode_TD = timedelta(hours=episode_h, minutes=episode_m, seconds=episode_s)
-
-        #         # Get episode block size and next play time
-        #         episode_block, next_play_time = get_next_tv_playtime(marker, episode_TD)
-
-        #         # Get chapter metadata
-        #         chapters = get_chapters(media['Filepath'])
-
-        #         # If Chapters
-        #         if chapters:
-        #             time_remaining_for_episode = episode_TD
-        #             # log.debug(f"Chapters: {len(chapters)}")
-
-        #             # Calculate max commercial time
-        #             max_commercial_time = get_max_break_time(episode_TD, chapters, episode_block)
-
-        #             for chapter in chapters:
-        #                 time_remaining_in_block = next_play_time - marker
-
-        #                 # Get chapter duration
-        #                 chapter_number, chapter_start, chapter_end = chapter
-        #                 chapter_start_h, chapter_start_m, chapter_start_s = map(int, chapter_start.split(":"))
-        #                 chapter_start_TD = timedelta(hours=chapter_start_h, minutes=chapter_start_m, seconds=chapter_start_s)
-        #                 chapter_end_h, chapter_end_m, chapter_end_s = map(int, chapter_end.split(":"))
-        #                 chapter_end_TD = timedelta(hours=chapter_end_h, minutes=chapter_end_m, seconds=chapter_end_s)
-        #                 chapter_duration = chapter_end_TD - chapter_start_TD
-
-        #                 # Insert into schedule
-        #                 post_marker = marker + chapter_duration
-        #                 # log.debug(f"Inserting {media['Filepath']} - Chapter {chapter_number}")
-        #                 insert_into_schedule(channel_number, marker, post_marker, media["Filepath"], chapter_number, seconds_to_hms(chapter_duration.total_seconds()))
-        #                 marker = post_marker + timedelta(seconds=1)
-        #                 time_remaining_for_episode -= chapter_duration
-
-        #                 # Commercials between chapters
-        #                 if int(chapter_number) < len(chapters):
-        #                     standard_commercial_break(max_commercial_time, channel_number)
-        #                 else:
-        #                     # Commercials post episode
-        #                     # log.debug("Final chapter has been played")
-        #                     log.debug(f"Filling commercials from {marker} to {next_play_time}")
-        #                     post_episode(next_play_time, channel_number)
-        #         else:
-        #             # If no chapters are in episode, add episode and fill the rest of the block with commercials
-        #             hours, minutes, seconds = map(int, media["Runtime"].split(":"))
-        #             media_runtime_TD = timedelta(hours=hours,minutes=minutes,seconds=seconds)
-        #             post_marker = marker + media_runtime_TD
-        #             insert_into_schedule(channel_number, marker, post_marker, media["Filepath"], None, media["Runtime"])
-                    
-        #             log.debug(f"{marker} - {post_marker} - {media['Filepath']}")
-
-        #             # Pop 'media' from the list
-        #             media_index = random_media_list.index(media)
-        #             random_media_list.pop(media_index)
-
-        #             marker = post_marker + timedelta(seconds=1)
-
-        #             # Commercials post episode
-        #             log.debug(f"Filling commercials from {marker} to {next_play_time}")
-        #             post_episode(next_play_time, channel_number)
-        #     else:
-        #         # Non-episode media - Movies
-        #         media_h, media_m, media_s = map(int, media["Runtime"].split(":"))
-        #         media_TD = timedelta(hours=media_h, minutes=media_m, seconds=media_s)
-
-        #         # Insert into schedule
-        #         post_marker = marker + media_TD
-        #         insert_into_schedule(channel_number, marker, post_marker, media["Filepath"], None, media["Runtime"])
-        #         # log.debug(f"{marker} - {post_marker} - {media['Filepath']}")
-        #         marker = post_marker + timedelta(seconds=1)
-
-        #         # Pop 'media' from the list
-        #         media_index = random_media_list.index(media)
-        #         random_media_list.pop(media_index)
-
-        #         if marker.minute < 30:
-        #             if marker.hour == 23:
-        #                 next_play_time = marker.replace(day=(marker.day + 1), minute=30, second=0, microsecond=0)
-        #             else:
-        #                 next_play_time = marker.replace(minute=30, second=0, microsecond=0)
-        #         else:
-        #             if marker.hour == 23:
-        #                 next_play_time = marker.replace(day=(marker.day + 1), hour=0, minute=0, second=0, microsecond=0)
-        #             else:
-        #                 next_play_time = marker.replace(hour=(marker.hour + 1), minute=0, second=0, microsecond=0)
-
-        #         log.debug(f"Filling commercials from {marker} to {next_play_time}")
-        #         # log.debug(f"Next Play Time: {next_play_time}")
-        #         post_movie(next_play_time, channel_number)
-
-clear_schedule_table()
+# clear_schedule_table()
 # create_schedule()
 
 
