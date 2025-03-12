@@ -1,4 +1,4 @@
-# SoloStation - v3-classes
+# SoloStation - v3
 
 > "An exciting, new cable experience!"
 
@@ -20,12 +20,7 @@ This is designed with specific software and hardware requirements:
 
 # Current Status
 
-## Latest Update:
-### 2025-02-19
-Testing a way to extend the schedule past the next day so that playback can continue "indefinitely".  This may or may not make it to the feature freeze but I thought I would try anyway.
-
-### 2025-02-18
-Repo has been cleaned up, so everything is now under "v2".  Pay-per-view channels 2 and 3 were added.  Getting close to a feature freeze and then directing my attention over to the hardware side of things, then work on ironing out any bugs or issues.
+The v3 branch is "experimental", as I've had a little help from AI on getting things together.  This is more for me, gaining a deeper understanding of Python.  The main branch still works and I will continue to improve on it as I have time.
 
 # Media Layout/Organization
 For mass storage, I have an EXT4 formatted 2TB SSD connected to the Raspberry Pi; Raspbian auto mounts the drive to /media/USERNAME/usb.  Here is the file/folder org for this drive (don't judge my folder naming too harshly):

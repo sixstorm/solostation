@@ -45,7 +45,8 @@ player = mpv.MPV(
     sub="no",
     input_ipc_server=socket_path,
     vo="gpu",
-    hwdec="rpi"
+    hwdec="rpi",
+    prefetch_playlist="yes"
 )
 
 player.fullscreen = True
@@ -165,6 +166,10 @@ def update_osd_text(player, text, font_name="Arial"):
         log.error(f"MPV OSD error: {e} - Command: osd-overlay {overlay_id} ass-events {ass_text}")
         raise
 
+def is_commercial(filepath):
+    """Check if the filepath indicates a commercial."""
+    return "commercial" in filepath.lower()
+
 
 @player.on_key_press("w")
 def listen_for_channel_change():
@@ -202,70 +207,141 @@ while True:
     channel_changed = False
     playable = False
 
-    # Import schedule
     live_schedule = import_schedule(current_channel)
 
-    # Inner channel loop
     while not channel_changed:
-        # Get playing now and playing next
         try:
             playing_now = [s for s in live_schedule if now >= s["showtime"] and now < s["end"]][0]
-            log.info(f"{playing_now}")
             playing_now_index = live_schedule.index(playing_now)
-            playing_next = live_schedule[playing_now_index + 1]
-            log.info(f"{playing_next}")
+            playing_next = live_schedule[playing_now_index + 1] if playing_now_index + 1 < len(live_schedule) else None
         except IndexError:
-            playing_next = None
+            time.sleep(1)
+            continue
 
-        # Start playback
-        try:
-            player.play(playing_now["filepath"])
-        except Exception as e:
-            log.error(f"Playback error: {e}")
+        if is_commercial(playing_now["filepath"]):
+            commercial_sequence = [playing_now]
+            next_index = playing_now_index + 1
+            while next_index < len(live_schedule) and is_commercial(live_schedule[next_index]["filepath"]):
+                commercial_sequence.append(live_schedule[next_index])
+                next_index += 1
 
-        # Update OSD text for Channel 3 (music videos)
-        if current_channel == 3 and "idents" not in playing_now["filepath"]:
-            artist, title = get_music_info(playing_now["filepath"])
-            osd_text = f"{artist} | {title}"
-            update_osd_text(player, osd_text, font_name="Kabel Black")
-        else:
-            # Clear OSD when not on Channel 3
-            player.command("osd-overlay", 0, "none", "")
+            playlist = [item["filepath"] for item in commercial_sequence]
+            player.playlist_clear()
+            for filepath in playlist:
+                player.playlist_append(filepath)
+            player.playlist_pos = 0
+            player.play()
 
-
-        # Wait until duration and seekable properties are ready, signaling that the file is properly loaded
-        while not playable:
-            if player.duration is not None and player.seekable:
-                playable = True
-                time.sleep(0.1)
-
-        if playing_now["chapter"] is not None:
-            chapter_start_time = get_chapter_start_time(playing_now["filepath"], playing_now["chapter"])
-            time_gap = datetime.now() - playing_now["showtime"]
-            chapter_hour, chapter_minute, chapter_second = map(int, chapter_start_time.split(":"))
-            elapsed_time = (time_gap + timedelta(hours=chapter_hour, minutes=chapter_minute, seconds=chapter_second)).total_seconds()
-        else:
             elapsed_time = (now - playing_now["showtime"]).total_seconds()
-
-        elapsed_time = max(0, elapsed_time)
-        if elapsed_time > 0:
-            try:
+            if elapsed_time > 0:
                 player.seek(elapsed_time, reference="absolute")
-            except Exception as e:
-                log.debug(f"Seek Error: {e}")
-                break
+
+            sequence_end = commercial_sequence[-1]["end"]
+            while now < sequence_end and not channel_changed:
+                now = datetime.now().replace(microsecond=0)
+                time.sleep(0.05)
+            if not channel_changed:
+                now = sequence_end
+                continue
         else:
-            time.sleep(0.1)
+            player.play(playing_now["filepath"])
+            if current_channel == 3 and "idents" not in playing_now["filepath"]:
+                artist, title = get_music_info(playing_now["filepath"])
+                osd_text = f"{artist} | {title}"
+                update_osd_text(player, osd_text, font_name="Kabel Black")
+            else:
+                player.command("osd-overlay", 0, "none", "")
 
-        # Unpause playback if it is paused
-        if player.pause:
-            player.pause = False
+            while not playable:
+                if player.duration is not None and player.seekable:
+                    playable = True
+                time.sleep(0.05)
 
-        # Play video until end time has come
-        while now < playing_now["end"]:
-            now = datetime.now().replace(microsecond=0)
+            elapsed_time = (now - playing_now["showtime"]).total_seconds()
+            if elapsed_time > 0:
+                player.seek(elapsed_time, reference="absolute")
 
-            # Break the loop if channel_changed is set to True
-            if channel_changed:
-                break
-            time.sleep(0.1)
+            if player.pause:
+                player.pause = False
+
+            while now < playing_now["end"]:
+                now = datetime.now().replace(microsecond=0)
+                if channel_changed:
+                    break
+                time.sleep(0.05)
+
+
+
+
+# while True:
+#     now = datetime.now().replace(microsecond=0)
+#     channel_changed = False
+#     playable = False
+
+#     # Import schedule
+#     live_schedule = import_schedule(current_channel)
+
+#     # Inner channel loop
+#     while not channel_changed:
+#         # Get playing now and playing next
+#         try:
+#             playing_now = [s for s in live_schedule if now >= s["showtime"] and now < s["end"]][0]
+#             log.info(f"{playing_now}")
+#             playing_now_index = live_schedule.index(playing_now)
+#             playing_next = live_schedule[playing_now_index + 1]
+#             log.info(f"{playing_next}")
+#         except IndexError:
+#             playing_next = None
+
+#         # Start playback
+#         try:
+#             player.play(playing_now["filepath"])
+#         except Exception as e:
+#             log.error(f"Playback error: {e}")
+
+#         # Update OSD text for Channel 3 (music videos)
+#         if current_channel == 3 and "idents" not in playing_now["filepath"]:
+#             artist, title = get_music_info(playing_now["filepath"])
+#             osd_text = f"{artist} | {title}"
+#             update_osd_text(player, osd_text, font_name="Kabel Black")
+#         else:
+#             # Clear OSD when not on Channel 3
+#             player.command("osd-overlay", 0, "none", "")
+
+
+#         # Wait until duration and seekable properties are ready, signaling that the file is properly loaded
+#         while not playable:
+#             if player.duration is not None and player.seekable:
+#                 playable = True
+#                 time.sleep(0.1)
+
+#         if playing_now["chapter"] is not None:
+#             chapter_start_time = get_chapter_start_time(playing_now["filepath"], playing_now["chapter"])
+#             time_gap = datetime.now() - playing_now["showtime"]
+#             chapter_hour, chapter_minute, chapter_second = map(int, chapter_start_time.split(":"))
+#             elapsed_time = (time_gap + timedelta(hours=chapter_hour, minutes=chapter_minute, seconds=chapter_second)).total_seconds()
+#         else:
+#             elapsed_time = (now - playing_now["showtime"]).total_seconds()
+
+#         elapsed_time = max(0, elapsed_time)
+#         if elapsed_time > 0:
+#             try:
+#                 player.seek(elapsed_time, reference="absolute")
+#             except Exception as e:
+#                 log.debug(f"Seek Error: {e}")
+#                 break
+#         else:
+#             time.sleep(0.1)
+
+#         # Unpause playback if it is paused
+#         if player.pause:
+#             player.pause = False
+
+#         # Play video until end time has come
+#         while now < playing_now["end"]:
+#             now = datetime.now().replace(microsecond=0)
+
+#             # Break the loop if channel_changed is set to True
+#             if channel_changed:
+#                 break
+#             time.sleep(0.1)
