@@ -1018,7 +1018,7 @@ def create_schedule():
         channel_commercials = channel_data[channel_name]["commercials"]
         channel_tags = map(str, channel_data[channel_name]["tags"].split(", "))
 
-        log.info(f"Working on {channel_name} - {channel_number}")
+        log.info(f"Building schedule for {channel_name} - {channel_number}")
 
         # Set marker and channel end datetime
         marker = datetime.now().replace(hour = 0, minute = 0, second = 0, microsecond = 0)

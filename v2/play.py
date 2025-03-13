@@ -40,17 +40,20 @@ if os.path.exists(socket_path):
 
 # MPV Player Creation and Properties
 player = mpv.MPV(
-    ytdl=True, 
     input_default_bindings=True, 
     input_vo_keyboard=True,
     keep_open=True,
     sub="no",
     input_ipc_server=socket_path,
-    vo="gpu",
-    hwdec="rpi"
+    vo="opengl",
+    hwdec="rpi",
+    scale="bilinear",
+    cscale="bilinear"
 )
 
 player.fullscreen = True
+# player.cache = 2048
+player.demuxer_lavf_o = "buffer=32768"
 
 # Vars
 solo_db = os.getenv("DB_LOCATION")
@@ -58,13 +61,12 @@ channel_file = os.getenv("CHANNEL_FILE")
 settings_file = os.getenv("SETTINGS_FILE")
 
 # Functions
-def import_schedule(channel_number):
+def import_schedule():
     '''
-    Queries the schedule in the database for all items with given channel number.
+    Queries the schedule in the database for all items.
     All results are converted to a dictionary and returned in a list.
 
     Args:
-        channel_number (int) - Channel number
 
     Returns:  
         all_scheduled_items (list of dictionaries) - Each scheduled item
@@ -79,7 +81,7 @@ def import_schedule(channel_number):
 
     # Query schedule in database for given channel number 
     now = datetime.strftime(datetime.now(), "%Y-%m-%d %HH:%MM:%SS")
-    cursor.execute(f"SELECT * FROM SCHEDULE WHERE Channel = '{channel_number}' ORDER BY Showtime ASC")
+    cursor.execute(f"SELECT * FROM SCHEDULE ORDER BY Showtime ASC")
 
     # Convert query results to a list of dictionaries
     all_scheduled_items = [{
@@ -94,6 +96,43 @@ def import_schedule(channel_number):
     conn.close()
 
     return all_scheduled_items
+
+# def import_schedule(channel_number):
+#     '''
+#     Queries the schedule in the database for all items with given channel number.
+#     All results are converted to a dictionary and returned in a list.
+
+#     Args:
+#         channel_number (int) - Channel number
+
+#     Returns:  
+#         all_scheduled_items (list of dictionaries) - Each scheduled item
+        
+#     Raises:
+#     Example:
+#     '''
+
+#     # Open Database
+#     conn = sqlite3.connect(solo_db)
+#     cursor = conn.cursor()
+
+#     # Query schedule in database for given channel number 
+#     now = datetime.strftime(datetime.now(), "%Y-%m-%d %HH:%MM:%SS")
+#     cursor.execute(f"SELECT * FROM SCHEDULE WHERE Channel = '{channel_number}' ORDER BY Showtime ASC")
+
+#     # Convert query results to a list of dictionaries
+#     all_scheduled_items = [{
+#             "channel": row[1],
+#             "showtime": datetime.strptime(str(row[2]), "%Y-%m-%d %H:%M:%S"),
+#             "end": datetime.strptime(str(row[3]), "%Y-%m-%d %H:%M:%S"),
+#             "filepath": row[4],
+#             "chapter": row[5],
+#             "runtime": row[6]
+#     } for row in cursor.fetchall()]
+
+#     conn.close()
+
+#     return all_scheduled_items
 
 def get_chapter_start_time(filepath, chapter_number):
     '''
@@ -209,7 +248,6 @@ def listen_for_channel_change():
 #############
 # Clear out old scheduled items
 # schedule.clear_old_schedule_items()
-log.debug(schedule.check_schedule_for_rebuild())
 
 # If schedule needs to be built, build it
 if schedule.check_schedule_for_rebuild():
@@ -218,6 +256,11 @@ if schedule.check_schedule_for_rebuild():
 
 # Channel number to start on
 current_channel = load_last_channel()
+log.info(f"Last channel played: {current_channel}")
+
+# Import schedule
+live_schedule = import_schedule()
+log.info(f"Found {len(live_schedule)} scheduled items")
 
 # Main loop
 while True:
@@ -225,30 +268,36 @@ while True:
     channel_changed = False
     playable = False
 
-    # Import schedule
-    try:
-        live_schedule = import_schedule(current_channel)
-    except Exception as e:
-        log.debug(f"Schedule failed to be imported: {e}")
+    log.info(f"Looking for playing now on channel {current_channel}")
 
     # Inner channel loop
     while not channel_changed:
         # Get playing now and playing next
-        log.info(f"Looking for playing now on channel {current_channel}")
         try:
-            playing_now = [s for s in live_schedule if now >= s["showtime"] and now < s["end"]][0]
+            channel_schedule = [s for s in live_schedule if s["channel"] == current_channel]
+            log.info(f"Found {len(channel_schedule)} items for channel {current_channel}")
+            playing_now = [s for s in channel_schedule if now >= s["showtime"] and now < s["end"]][0]
+            log.info(f"{playing_now=}")
             playing_now_index = live_schedule.index(playing_now)
+            try:
+                playing_next = live_schedule[playing_now_index + 1]
+                log.info(f"Playing next: {playing_next}")
+            except IndexError:
+                playing_next = None
         except IndexError as e:
+            log.error(f"Index error occured with playing_now: {e}")
+            live_schedule = import_schedule()
             time.sleep(1)
             continue
 
-        try:
-            playing_next = live_schedule[playing_now_index + 1]
-        except IndexError:
-            playing_next = None
 
         # Start playback
+        if not os.path.exists(playing_now["filepath"]):
+            log.warning(f"File {playing_now['filepath']} does not exist")
+            time.sleep(1)
+            break
         player.play(playing_now["filepath"])
+        log.info(f"Playing until {playing_now['end']}")
 
         # Music Video OSD Text
         if current_channel == 3 and "idents" not in playing_now["filepath"]:
@@ -293,4 +342,10 @@ while True:
             # Break the loop if channel_changed is set to True
             if channel_changed:
                 break
+            if player.time_pos is None or player.time_pos >= player.duration:
+                log.warning(f"Playback stopped unexpectantly: {player.time_pos}/{player.duration}")
+                break
             time.sleep(0.1)
+
+        if now >= playing_now["end"]:
+            live_schedule = import_schedule()
