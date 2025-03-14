@@ -324,6 +324,32 @@ def get_next_tv_playtime(marker, episode_TD):
 
     return episode_block, next_play_time
 
+def get_next_movie_playtime_c2(marker):
+    '''
+    Find the next available time to play the next movie, ensuring that the next play time
+    starts on or half the hour.
+
+    Args:
+        marker (datetime): Location of marker
+
+    Returns:
+        next_play_time (datetime): Next available play time for next movie
+
+    Raises:
+    Example:
+    '''
+
+    if marker.minute < 30:
+        next_play_time = marker.replace(minute=30, second=0, microsecond=0)
+    else:
+        if marker.hour == 23:
+            next_play_time = marker.replace(day=(marker.day + 1), hour=0, minute=0, second=0, microsecond=0)
+        else:
+            next_play_time = marker.replace(hour=(marker.hour + 1), minute=0, second=0, microsecond=0)
+
+    return next_play_time
+
+
 def get_next_movie_playtime(marker):
     '''
     Find the next available time to play the next movie, giving 15-30 between show times
@@ -484,7 +510,7 @@ def schedule_ppv(channel_number, marker, channel_end_datetime):
 
             # Update Progress
             completed_time += movie_TD.total_seconds()
-            log.debug(f"{completed_time=}")
+            # log.debug(f"{completed_time=}")
             progress.update(task, completed=completed_time)
 
             # Fill with the movie until the channel end time
@@ -516,7 +542,7 @@ def schedule_bang(channel_number, marker, channel_end_datetime):
 
                 # Update Progress
                 completed_time += movie_TD.total_seconds()
-                log.debug(f"{completed_time=}")
+                # log.debug(f"{completed_time=}")
                 progress.update(task, completed=completed_time)
 
                 post_marker = marker + movie_TD
@@ -566,7 +592,7 @@ def schedule_motion(channel_number, marker, channel_end_datetime):
 
                 # Update Progress
                 completed_time += movie_TD.total_seconds()
-                log.debug(f"{completed_time=}")
+                # log.debug(f"{completed_time=}")
                 progress.update(task, completed=completed_time)
 
                 post_marker = marker + movie_TD
@@ -682,7 +708,7 @@ def schedule_channel2(channel_number, marker, channel_end_datetime, tags):
             random_media_list.pop(movie_index)
 
             # Get next movie playtime
-            next_play_time = get_next_movie_playtime(marker)
+            next_play_time = get_next_movie_playtime_c2(marker)
 
             # Fill time with commercials
             log.debug(f"Filling commercials from {marker} to {next_play_time}")
