@@ -94,6 +94,11 @@ def clear_old_schedule_items():
     cursor = conn.cursor()
 
     current_time = (datetime.now() - timedelta(hours=3)).strftime('%Y-%m-%d %H:%M:%S')
+    query = f"""SELECT * FROM SCHEDULE WHERE End < '{current_time}'"""
+    cursor.execute(query)
+    results = cursor.fetchall()
+    log.info(f"Found {len(results)} old items in Schedule")
+    
     query = f"""DELETE FROM SCHEDULE WHERE End < '{current_time}'"""
     cursor.execute(query)
     conn.commit()
@@ -102,7 +107,6 @@ def clear_old_schedule_items():
 def check_schedule_for_rebuild():
     """
     Checks for items scheduled for today in the Schedule table
-    Builds schedule if not available
 
     Args:
         None
@@ -120,6 +124,7 @@ def check_schedule_for_rebuild():
     conn = sqlite3.connect(os.getenv("DB_LOCATION"))
     cursor = conn.cursor()
     rebuild_needed = False
+    channels_to_rebuild = []
 
     # Extract all channel numbers from channels file
     now = datetime.now()
@@ -127,15 +132,28 @@ def check_schedule_for_rebuild():
         channel_data = json.load(channel_file_input)
 
     for channel in channel_data:
-
-        # channel_number = int(channel_data[channel]["channel_number"])
         channel_number = channel_data[channel]["channel_number"]
+        query = f""" SELECT Showtime, End, Filepath FROM SCHEDULE WHERE Channel = {channel_number} ORDER BY Showtime ASC"""
+        cursor.execute(query)
+        items = [{
+            "showtime": datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S"),
+            "end": datetime.strptime(row[1], "%Y-%m-%d %H:%M:%S"),
+            "filepath": row[2]
+        } for row in cursor.fetchall()]
 
-        cursor.execute(f"SELECT COUNT(*) FROM SCHEDULE WHERE end > '{now}' AND Channel = {channel_number}")
-        results = cursor.fetchone()[0]
-        if results == 0:
+        # log.info(f"Found {len(items)} items in schedule for channel {channel_number}")
+
+        if not items:
+            log.warning(f"No items found for channel {channel_number}")
             rebuild_needed = True
             break
+
+    
+        # cursor.execute(f"SELECT COUNT(*) FROM SCHEDULE WHERE end > '{now}' AND Channel = {channel_number}")
+        # results = cursor.fetchone()[0]
+        # if results == 0:
+        #     rebuild_needed = True
+        #     break
 
     conn.close()
 
@@ -438,7 +456,6 @@ def schedule_loud(channel_number, marker, channel_end_datetime):
 
                     # Update Progress
                     completed_time += mv_runtime_TD.total_seconds()
-                    log.debug(f"{completed_time=}")
                     progress.update(task, completed=completed_time)
 
 
@@ -474,7 +491,7 @@ def schedule_ppv(channel_number, marker, channel_end_datetime):
             while marker < channel_end_datetime:
                 post_marker = marker + movie_TD
                 insert_into_schedule(channel_number, marker, post_marker, ppv_movie_filepath, None, ppv_movie_runtime)
-                marker = post_marker + timedelta(seconds=1)
+                marker = post_marker #+ timedelta(seconds=1)
 
 def schedule_bang(channel_number, marker, channel_end_datetime):
     """ Schedules for the Bang Channel """
@@ -514,7 +531,7 @@ def schedule_bang(channel_number, marker, channel_end_datetime):
                 conn.close()
                 
                 # Update marker
-                marker = post_marker + timedelta(seconds=1)
+                marker = post_marker #+ timedelta(seconds=1)
 
                 # Stop filling with movies if marker is past the channel end date
                 if marker >= channel_end_datetime:
@@ -564,7 +581,7 @@ def schedule_motion(channel_number, marker, channel_end_datetime):
                 conn.close()
                 
                 # Update marker
-                marker = post_marker + timedelta(seconds=1)
+                marker = post_marker #+ timedelta(seconds=1)
 
                 # Stop filling with movies if marker is past the channel end date
                 if marker >= channel_end_datetime:
@@ -627,7 +644,7 @@ def schedule_channel2(channel_number, marker, channel_end_datetime, tags):
                     log.debug(f"Inserting {media['Filepath']} - Chapter {chapter_number}")
                     post_marker = marker + chapter_duration
                     insert_into_schedule(channel_number, marker, post_marker, media["Filepath"], chapter_number, seconds_to_hms(chapter_duration.total_seconds()))
-                    marker = post_marker + timedelta(seconds=1)
+                    marker = post_marker #+ timedelta(seconds=1)
 
                     # Commercials between chapters
                     if int(chapter_number) < len(chapters):
@@ -642,7 +659,7 @@ def schedule_channel2(channel_number, marker, channel_end_datetime, tags):
                 # If no chapters are in episode, add episode and fill the rest of the block with commercials
                 post_marker = marker + episode_TD
                 insert_into_schedule(channel_number, marker, post_marker, media["Filepath"], None, media["Runtime"])
-                marker = post_marker + timedelta(seconds=1)
+                marker = post_marker #+ timedelta(seconds=1)
 
                 # Pop 'media' from the list
                 media_index = random_media_list.index(media)
@@ -658,7 +675,7 @@ def schedule_channel2(channel_number, marker, channel_end_datetime, tags):
             # Insert into schedule
             post_marker = marker + movie_TD
             insert_into_schedule(channel_number, marker, post_marker, media["Filepath"], None, media["Runtime"])
-            marker = post_marker + timedelta(seconds=1)
+            marker = post_marker #+ timedelta(seconds=1)
 
             # Pop 'media' from the list
             movie_index = random_media_list.index(media)
@@ -751,10 +768,10 @@ def standard_commercial_break(marker, max_break_time, channel_number):
         comm_TD = timedelta(hours=comm_h, minutes=comm_m, seconds=comm_s)
 
         # Insert into schedule
-        max_break_time -= (comm_TD + timedelta(seconds=1))
+        max_break_time -= comm_TD #(comm_TD + timedelta(seconds=1))
         post_marker = marker + comm_TD
         insert_into_schedule(channel_number, marker, post_marker, commercial["Filepath"], None, commercial["Runtime"])
-        marker = post_marker  + timedelta(seconds=1)
+        marker = post_marker  #+ timedelta(seconds=1)
     
     return marker
 
@@ -792,10 +809,10 @@ def post_episode(marker, next_play_time, channel_number):
             comm_TD = timedelta(hours=comm_h, minutes=comm_m, seconds=comm_s)
 
             # Insert into schedule
-            time_remaining -= (comm_TD + timedelta(seconds=1))
+            time_remaining -= comm_TD #(comm_TD + timedelta(seconds=1))
             post_marker = marker + comm_TD
             insert_into_schedule(channel_number, marker, post_marker, commercial["Filepath"], None, commercial["Runtime"])
-            marker = post_marker  + timedelta(seconds=1)
+            marker = post_marker  #+ timedelta(seconds=1)
     
     # Add final filler
     marker = add_final_filler(marker, next_play_time, time_remaining, channel_number)
@@ -826,33 +843,20 @@ def post_movie(marker, next_play_time, channel_number):
     # Get time remaining
     time_remaining = next_play_time - marker
     time_remaining_hms = seconds_to_hms(time_remaining.total_seconds())
+    log.debug(type(time_remaining_hms))
 
     # Get all web content
-    all_web_media = []
-    results = search_database("web")
-    for r in results:
-        table, data = r
-        all_web_media.append(json.loads(data))
+    all_web_media = [json.loads(data) for table, data in search_database("web")]
+    random.shuffle(all_web_media)
 
-    while time_remaining > timedelta(minutes=1):
-        # Filter web content
-        try:
-            all_web_filtered = [w for w in all_web_media if w["Runtime"] <= time_remaining_hms]
-        except IndexError:
-            break
-            
-        random.shuffle(all_web_filtered)
-        selected_web = all_web_filtered[0]
-        
-        # Parse web runtime
-        web_h, web_m, web_s = map(int, selected_web["Runtime"].split(":"))
+    for web_media in all_web_media:
+        web_h, web_m, web_s = map(int, web_media["Runtime"].split(":"))
         web_TD = timedelta(hours=web_h, minutes=web_m, seconds=web_s)
-
-        # Insert into schedule
-        time_remaining -= (web_TD + timedelta(seconds=1))
-        post_marker = marker + web_TD
-        insert_into_schedule(channel_number, marker, post_marker, selected_web["Filepath"], None, selected_web["Runtime"])
-        marker = post_marker  + timedelta(seconds=1)
+        if web_TD <= time_remaining:
+            time_remaining -= web_TD
+            post_marker = marker + web_TD
+            insert_into_schedule(channel_number, marker, post_marker, web_media["Filepath"], None, web_media["Runtime"])
+            marker = post_marker
 
     # Add final filler
     marker = add_final_filler(marker, next_play_time, time_remaining, channel_number)
@@ -922,10 +926,12 @@ def select_commercial(max_break):
     cursor = conn.cursor()
 
     # Get all commercials
-    all_comms = []
-    for r in search_database("commercial"):
-        table, data = r
-        all_comms.append(json.loads(data))
+    all_comms = [json.loads(data) for table, data in search_database("commercial") if "filler" not in json.loads(data)["Tags"]]
+    # all_comms = []
+    # for r in search_database("commercial"):
+    #     all_comms
+    #     table, data = r
+    #     all_comms.append(json.loads(data))
 
     # Try and find commercials that match max_break
     # log.debug(f"Looking for commercials that match {seconds_to_hms(max_break.total_seconds())}")
@@ -1006,48 +1012,48 @@ def create_schedule():
     """
     global marker
 
-    # Read in channel json file
-    # log.debug("Opening the channel file")
-    with open(channel_file, "r") as channel_file_input:
-        channel_data = json.load(channel_file_input)
+    # Clear old items in the schedule
+    if check_schedule_for_rebuild():
+        # Read in channel json file
+        # log.debug("Opening the channel file")
+        with open(channel_file, "r") as channel_file_input:
+            channel_data = json.load(channel_file_input)
 
-    # Parse channel information
-    for channel_metadata in channel_data:
-        channel_name = channel_metadata
-        channel_number = channel_data[channel_name]["channel_number"]
-        channel_commercials = channel_data[channel_name]["commercials"]
-        channel_tags = map(str, channel_data[channel_name]["tags"].split(", "))
+        # Parse channel information
+        for channel_metadata in channel_data:
+            channel_name = channel_metadata
+            channel_number = channel_data[channel_name]["channel_number"]
+            channel_commercials = channel_data[channel_name]["commercials"]
+            channel_tags = map(str, channel_data[channel_name]["tags"].split(", "))
 
-        log.info(f"Building schedule for {channel_name} - {channel_number}")
+            log.info(f"Building schedule for {channel_name} - {channel_number}")
 
-        # Set marker and channel end datetime
-        marker = datetime.now().replace(hour = 0, minute = 0, second = 0, microsecond = 0)
-        channel_end_datetime = marker + timedelta(days = 1, seconds=1)
+            # Set marker and channel end datetime
+            marker = datetime.now().replace(hour = 0, minute = 0, second = 0, microsecond = 0)
+            channel_end_datetime = marker + timedelta(days = 1, seconds=1)
 
-        match channel_number:
-            case 2:
-                schedule_channel2(channel_number, marker, channel_end_datetime, channel_tags)
-                continue
-            case 3:
-                schedule_loud(channel_number, marker, channel_end_datetime)
-                continue
-            case 4:
-                schedule_motion(channel_number, marker, channel_end_datetime)
-                continue
-            case 5:
-                schedule_bang(channel_number, marker, channel_end_datetime)
-                continue
-            case 6:
-                schedule_ppv(channel_number, marker, channel_end_datetime)
-                continue
-            case 7:
-                schedule_ppv(channel_number, marker, channel_end_datetime)
-                continue
-            case 8:
-                schedule_ppv(channel_number, marker, channel_end_datetime)
-                continue
+            match channel_number:
+                case 2:
+                    schedule_channel2(channel_number, marker, channel_end_datetime, channel_tags)
+                    continue
+                case 3:
+                    schedule_loud(channel_number, marker, channel_end_datetime)
+                    continue
+                case 4:
+                    schedule_motion(channel_number, marker, channel_end_datetime)
+                    continue
+                case 5:
+                    schedule_bang(channel_number, marker, channel_end_datetime)
+                    continue
+                case 6:
+                    schedule_ppv(channel_number, marker, channel_end_datetime)
+                    continue
+                case 7:
+                    schedule_ppv(channel_number, marker, channel_end_datetime)
+                    continue
+                case 8:
+                    schedule_ppv(channel_number, marker, channel_end_datetime)
+                    continue
 
-# clear_schedule_table()
-# create_schedule()
 
 

@@ -75,6 +75,8 @@ def import_schedule():
     Example:
     '''
 
+    log.info("Calling import schedule")
+
     # Open Database
     conn = sqlite3.connect(solo_db)
     cursor = conn.cursor()
@@ -272,15 +274,16 @@ while True:
 
     # Inner channel loop
     while not channel_changed:
+        now = datetime.now().replace(microsecond=0)
         # Get playing now and playing next
         try:
             channel_schedule = [s for s in live_schedule if s["channel"] == current_channel]
             log.info(f"Found {len(channel_schedule)} items for channel {current_channel}")
             playing_now = [s for s in channel_schedule if now >= s["showtime"] and now < s["end"]][0]
             log.info(f"{playing_now=}")
-            playing_now_index = live_schedule.index(playing_now)
+            playing_now_index = channel_schedule.index(playing_now)
             try:
-                playing_next = live_schedule[playing_now_index + 1]
+                playing_next = channel_schedule[playing_now_index + 1]
                 log.info(f"Playing next: {playing_next}")
             except IndexError:
                 playing_next = None
@@ -311,7 +314,7 @@ while True:
         while not playable:
             if player.duration is not None and player.seekable:
                 playable = True
-                time.sleep(0.1)
+                time.sleep(0.05)
 
         if playing_now["chapter"] is not None:
             chapter_start_time = get_chapter_start_time(playing_now["filepath"], playing_now["chapter"])
