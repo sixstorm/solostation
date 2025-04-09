@@ -124,16 +124,16 @@ def check_schedule_for_rebuild():
     conn = sqlite3.connect(os.getenv("DB_LOCATION"))
     cursor = conn.cursor()
     rebuild_needed = False
-    channels_to_rebuild = []
 
     # Extract all channel numbers from channels file
-    now = datetime.now()
+    now = datetime.now().strftime("%Y-%m-%d")
     with open(channel_file, "r") as channel_file_input:
         channel_data = json.load(channel_file_input)
 
     for channel in channel_data:
         channel_number = channel_data[channel]["channel_number"]
-        query = f""" SELECT Showtime, End, Filepath FROM SCHEDULE WHERE Channel = {channel_number} ORDER BY Showtime ASC"""
+        log.info(f"Checking for channel {channel_number} for {now}")
+        query = f""" SELECT Showtime, End, Filepath FROM SCHEDULE WHERE Channel = {channel_number} AND DATE(Showtime) = {now} ORDER BY Showtime ASC"""
         cursor.execute(query)
         items = [{
             "showtime": datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S"),
@@ -141,19 +141,12 @@ def check_schedule_for_rebuild():
             "filepath": row[2]
         } for row in cursor.fetchall()]
 
-        # log.info(f"Found {len(items)} items in schedule for channel {channel_number}")
+        log.info(f"Found {len(items)} items in schedule for channel {channel_number}")
 
         if not items:
             log.warning(f"No items found for channel {channel_number}")
             rebuild_needed = True
             break
-
-    
-        # cursor.execute(f"SELECT COUNT(*) FROM SCHEDULE WHERE end > '{now}' AND Channel = {channel_number}")
-        # results = cursor.fetchone()[0]
-        # if results == 0:
-        #     rebuild_needed = True
-        #     break
 
     conn.close()
 
