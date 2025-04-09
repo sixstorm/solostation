@@ -21,6 +21,10 @@ This is designed with specific software and hardware requirements:
 # Current Status
 
 ## Latest Update:
+### 2025-04-09
+
+v1.1 - Just some code cleanup, internal documentation done.  
+
 ### 2025-03-12
 
 After running a few experiments with some "assisted AI" coding, I decided to keep the code where it is and just run with it for now.  All channels work, music videos now show the artist and song title during playback, scheduling doesn't appear to have any bugs; it is at a point now where I could just simply watch it.  Schedules will need to be rebuilt every day, but that only takes ~15 seconds.  I've also added a feature where the last viewed channel will remain persistant the next time you run the play script (or if it crashes).  Check out my latest blog post [here](https://blog2.teamtuck.xyz/blog/solostation-release/).
